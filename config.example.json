@@ -1,0 +1,25 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5999
+  },
+  "volcengine": {
+    "enabled": true,
+    "demo_mode": false,
+    "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+    "api_key": "your-volcengine-ark-api-key-here",
+    "ak": "",
+    "sk": "",
+    "model": "doubao-seed-evolving",
+    "check_interval_seconds": 300
+  },
+  "workbuddy": {
+    "enabled": true,
+    "demo_mode": false,
+    "checkin_url": "https://workbuddy.qq.com/api/v1/growth/checkin",
+    "token": "",
+    "cookie": "",
+    "auto_checkin_enabled": true,
+    "checkin_time": "09:00"
+  }
+}

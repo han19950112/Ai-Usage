@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Cockpit - 多智能体统一监控与自动化工作台</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛸</text></svg>">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: rgba(22, 27, 34, 0.85);
+      --card-border: rgba(240, 246, 252, 0.1);
+      --text: #f0f6fc;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #bc8cff;
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px; }
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    /* Header */
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-icon { font-size: 28px; background: rgba(88, 166, 255, 0.15); border: 1px solid rgba(88, 166, 255, 0.3); border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+    .brand h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+    .brand p { font-size: 13px; color: var(--text-muted); }
+    .header-actions { display: flex; align-items: center; gap: 10px; }
+    .btn { background: #21262d; color: var(--text); border: 1px solid var(--card-border); padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn:hover { background: #30363d; border-color: #8b949e; }
+    .btn-primary { background: #238636; border-color: rgba(240, 246, 252, 0.1); color: #fff; }
+    .btn-primary:hover { background: #2ea043; }
+    .server-time { font-size: 12px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
+
+    /* Grid layout */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; margin-bottom: 24px; }
+
+    /* Cards */
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 20px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2); display: flex; flex-direction: column; justify-content: space-between; }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+    .card-title { display: flex; align-items: center; gap: 10px; }
+    .card-icon { font-size: 22px; }
+    .card-title h2 { font-size: 16px; font-weight: 600; }
+    .badge { font-size: 12px; padding: 3px 8px; border-radius: 20px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
+    .badge-running { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
+    .badge-stopped { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); border: 1px solid rgba(139, 148, 158, 0.3); }
+    .badge-warning { background: rgba(210, 153, 34, 0.15); color: var(--yellow); border: 1px solid rgba(210, 153, 34, 0.3); }
+    .badge-critical { background: rgba(248, 81, 73, 0.15); color: var(--red); border: 1px solid rgba(248, 81, 73, 0.3); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .dot-pulse { animation: pulse 1.8s infinite; }
+    @keyframes pulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.3); } 100% { opacity: 1; transform: scale(1); } }
+
+    /* Key Value Stats */
+    .stat-list { display: flex; flex-direction: column; gap: 10px; font-size: 13px; margin-bottom: 16px; }
+    .stat-row { display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
+    .stat-row .val { color: var(--text); font-weight: 500; font-family: ui-monospace, SFMono-Regular, monospace; }
+
+    /* Progress bar */
+    .progress-box { margin-top: 10px; }
+    .progress-header { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+    .progress-bar-bg { height: 8px; background: rgba(110, 118, 129, 0.2); border-radius: 6px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; border-radius: 6px; transition: width 0.4s ease; }
+    .fill-green { background: linear-gradient(90deg, #238636, #3fb950); }
+    .fill-yellow { background: linear-gradient(90deg, #d29922, #e3b341); }
+    .fill-red { background: linear-gradient(90deg, #da3633, #f85149); }
+
+    /* Workbuddy checkin panel */
+    .checkin-action { background: rgba(33, 38, 45, 0.6); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+    .checkin-meta { font-size: 12px; color: var(--text-muted); }
+    .checkin-meta strong { color: var(--green); font-size: 14px; }
+    .history-item { font-size: 12px; padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; color: var(--text-muted); }
+    .history-item:last-child { border-bottom: none; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 100; }
+    .modal { background: #161b22; border: 1px solid #30363d; border-radius: 12px; width: 90%; max-width: 520px; padding: 24px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+    .modal h3 { font-size: 18px; margin-bottom: 16px; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+    .form-control { width: 100%; background: #0d1117; border: 1px solid #30363d; color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+    .form-control:focus { outline: none; border-color: var(--accent); }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      body { padding: 16px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="brand-icon">🛸</div>
+        <div>
+          <h1>Agent Cockpit</h1>
+          <p>多智能体统一监控与自动化工作台</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="server-time" id="serverTime">检测中...</span>
+        <button class="btn" onclick="fetchStatus(true)">🔄 刷新</button>
+        <button class="btn" onclick="openConfigModal()">⚙️ 设置凭据</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- 1. Google Antigravity -->
+      <div class="card">
+        <div>
+          <div class="card-header">
+            <div class="card-title">
+              <span class="card-icon">⚡</span>
+              <div>
+                <h2>Google Antigravity</h2>
+                <span style="font-size: 12px; color: var(--text-muted);">反重力智能体 · 模型配额与上下文</span>
+              </div>
+            </div>
+            <div id="agBadge" class="badge badge-stopped"><span class="dot"></span> 未运行</div>
+          </div>
+          <div class="stat-list">
+            <div class="stat-row"><span>当前活跃模型</span><span class="val" id="agModel" style="color:var(--accent); font-weight:600;">-</span></div>
+            <div class="stat-row"><span>IDE / 服务端状态</span><span class="val" id="agVersion">-</span></div>
+            <div class="stat-row"><span>独立汉化启动器</span><span class="val" id="agZh">-</span></div>
+            <div class="stat-row"><span>累计 Token (入/出)</span><span class="val" id="agTokens">-</span></div>
+            <div class="stat-row"><span>Prompt 缓存省流倍率</span><span class="val" id="agCache" style="color:var(--green);">-</span></div>
+            <div class="stat-row"><span>最近活动时间</span><span class="val" id="agLast">-</span></div>
+          </div>
+
+          <!-- 5h Rolling Subscription Window -->
+          <div class="progress-box">
+            <div class="progress-header">
+              <span>⏱️ 5小时订阅额度窗口 (<span id="ag5hCountdown" style="color:var(--accent);">滚动计算中</span>)</span>
+              <span id="ag5hHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-green" id="ag5hBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Context Window Bar -->
+          <div class="progress-box" style="margin-top: 12px;">
+            <div class="progress-header">
+              <span>当前会话上下文窗口 (100万 Token)</span>
+              <span id="agCtxHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0k / 1.0M (0%)</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-green" id="agCtxBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Model Quota Pools -->
+          <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <span class="badge badge-running" style="font-size: 11px;">⚡ Gemini 3.8 Flash: 充足</span>
+            <span class="badge badge-running" style="font-size: 11px;">🧠 Gemini Pro: 就绪</span>
+            <span class="badge badge-running" style="font-size: 11px;">🎭 Claude 3.5: 可用</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. OpenAI Codex -->
+      <div class="card">
+        <div>
+          <div class="card-header">
+            <div class="card-title">
+              <span class="card-icon">🧠</span>
+              <div>
+                <h2>OpenAI Codex</h2>
+                <span style="font-size: 12px; color: var(--text-muted);">终端/桌面级编程智能体</span>
+              </div>
+            </div>
+            <div id="cdxBadge" class="badge badge-stopped"><span class="dot"></span> 空闲</div>
+          </div>
+          <div class="stat-list">
+            <div class="stat-row"><span>安装状态</span><span class="val" id="cdxInstalled">-</span></div>
+            <div class="stat-row"><span>应用版本</span><span class="val" id="cdxVersion">-</span></div>
+            <div class="stat-row"><span>配置存储目录</span><span class="val" id="cdxDir" style="font-size:11px;">~/.codex</span></div>
+            <div class="stat-row"><span>日志与事件总计</span><span class="val" id="cdxEvents">-</span></div>
+            <div class="stat-row"><span>最近活动时间</span><span class="val" id="cdxLast">-</span></div>
+          </div>
+
+          <!-- 5h Codex Window -->
+          <div class="progress-box">
+            <div class="progress-header">
+              <span>⏱️ 5小时会话额度窗口 (<span id="cdx5hCountdown" style="color:var(--accent);">随时可用</span>)</span>
+              <span id="cdx5hHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-green" id="cdx5hBar" style="width: 0%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. 火山引擎 Plan API -->
+      <div class="card">
+        <div>
+          <div class="card-header">
+            <div class="card-title">
+              <span class="card-icon">🌋</span>
+              <div>
+                <h2>火山引擎 Plan API</h2>
+                <span style="font-size: 12px; color: var(--text-muted);">方舟 Coding/Agent Plan 监控</span>
+              </div>
+            </div>
+            <div id="volcBadge" class="badge badge-stopped"><span class="dot"></span> 待配置</div>
+          </div>
+          <div class="stat-list">
+            <div class="stat-row"><span>模型预设</span><span class="val" id="volcModel">doubao-seed-evolving</span></div>
+            <div class="stat-row"><span>接口连通延迟</span><span class="val" id="volcLatency">-</span></div>
+            <div class="stat-row"><span>周配额消耗</span><span class="val" id="volcWeek">-</span></div>
+            <div class="stat-row"><span>状态提示</span><span class="val" id="volcMsg" style="font-size:12px;">-</span></div>
+          </div>
+
+          <!-- 5h Volcengine Window -->
+          <div class="progress-box">
+            <div class="progress-header">
+              <span>⏱️ 5小时订阅额度窗口 (<span id="volcReset" style="color:var(--accent);">-</span>)</span>
+              <span id="volcPct" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-green" id="volcBar" style="width: 0%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. WorkBuddy & Auto Check-in -->
+      <div class="card">
+        <div>
+          <div class="card-header">
+            <div class="card-title">
+              <span class="card-icon">🤖</span>
+              <div>
+                <h2>WorkBuddy & 自动签到</h2>
+                <span style="font-size: 12px; color: var(--text-muted);">腾讯全场景 Agent · Buddy 加油站</span>
+              </div>
+            </div>
+            <div id="wbBadge" class="badge badge-stopped"><span class="dot"></span> 未签到</div>
+          </div>
+
+          <!-- 5h WorkBuddy Window -->
+          <div class="progress-box" style="margin-bottom: 14px;">
+            <div class="progress-header">
+              <span>⏱️ 5小时任务调度窗口 (<span id="wb5hCountdown" style="color:var(--accent);">5小时滚动</span>)</span>
+              <span id="wb5hHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-green" id="wb5hBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <div class="checkin-action">
+            <div>
+              <div class="checkin-meta">今日状态: <strong id="wbTodayStatus">未打卡</strong></div>
+              <div class="checkin-meta" style="margin-top:4px;">连续打卡: <span id="wbDays" style="color:var(--text); font-weight:600;">0</span> 天 · 累计积分: <span id="wbPoints" style="color:var(--text); font-weight:600;">0</span></div>
+            </div>
+            <button class="btn btn-primary" id="btnCheckin" onclick="triggerCheckin()">🎁 立即打卡</button>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">最近签到历史：</div>
+            <div id="wbHistory">
+              <div class="history-item"><span>暂无记录</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="configModal">
+    <div class="modal">
+      <h3>⚙️ 快速配置凭证</h3>
+      <div class="form-group">
+        <label>火山引擎 API Key / Token (用于方舟 Coding Plan 监控)</label>
+        <input type="password" id="cfgVolcKey" class="form-control" placeholder="填入火山方舟 API Key">
+      </div>
+      <div class="form-group">
+        <label>火山引擎模型标识</label>
+        <input type="text" id="cfgVolcModel" class="form-control" value="doubao-seed-evolving" placeholder="例如 doubao-seed-evolving">
+      </div>
+      <div class="form-group">
+        <label>WorkBuddy Token / Cookie (用于自动打卡领积分)</label>
+        <input type="password" id="cfgWbToken" class="form-control" placeholder="填入 Bearer Token 或 Cookie 凭据">
+      </div>
+      <div class="form-group">
+        <label>每日定时签到时间 (24小时制，例如 09:00)</label>
+        <input type="text" id="cfgWbTime" class="form-control" value="09:00">
+      </div>
+      <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" id="cfgDemo" style="cursor: pointer;">
+        <label for="cfgDemo" style="margin: 0; cursor: pointer;">启用演示模式（若暂时没有填入真实 Key，自动模拟配额与签到效果）</label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeConfigModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveSettings()">保存并刷新</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function fetchStatus(manual = false) {
+      try {
+        const resp = await fetch('/api/status');
+        const data = await resp.json();
+        renderDashboard(data);
+        if (manual) {
+          const btn = document.querySelector('button[onclick="fetchStatus(true)"]');
+          btn.innerText = '✅ 已更新';
+          setTimeout(() => btn.innerText = '🔄 刷新', 1200);
+        }
+      } catch (e) {
+        console.error('Fetch status error:', e);
+      }
+    }
+
+    function renderDashboard(data) {
+      if (data.server_time) {
+        document.getElementById('serverTime').innerText = `${data.hostname || 'Local'} · ${data.server_time}`;
+      }
+
+      // 1. Antigravity
+      const ag = data.antigravity || {};
+      const agBadge = document.getElementById('agBadge');
+      if (ag.running) {
+        agBadge.className = 'badge badge-running';
+        agBadge.innerHTML = '<span class="dot dot-pulse"></span> 运行中 (PID ' + ag.pid + ')';
+      } else {
+        agBadge.className = 'badge badge-stopped';
+        agBadge.innerHTML = '<span class="dot"></span> 未运行';
+      }
+      
+      const q = ag.quota || {};
+      document.getElementById('agModel').innerText = q.current_model || 'Gemini 3.8 Flash';
+      document.getElementById('agVersion').innerText = `v${ag.version || '2.34.0'} · LS在线`;
+      document.getElementById('agZh').innerText = ag.is_chinese_launcher ? '✅ 已激活 (中文双入口)' : '标准版';
+      
+      const tk = q.tokens || {};
+      const inpK = Math.round((tk.total_input || 0) / 1000);
+      const outK = Math.round((tk.total_output || 0) / 1000);
+      document.getElementById('agTokens').innerText = `${inpK}k 入 / ${outK}k 出`;
+      document.getElementById('agCache').innerText = `${tk.cache_savings_ratio || '1.0x'} (${Math.round((tk.total_cached || 0) / 1000000 * 10) / 10}M 命中)`;
+      document.getElementById('agLast').innerText = ag.last_active || '暂无';
+
+      // 1. Antigravity 5h Quota Bar
+      const ag5h = q.five_hour_usage || {};
+      const ag5hPct = ag5h.percent || 0;
+      document.getElementById('ag5hCountdown').innerText = ag5h.reset_countdown_human || '滑动重置';
+      document.getElementById('ag5hHuman').innerText = `${ag5h.human_used || '0k'} (${ag5hPct}%)`;
+      const ag5hBar = document.getElementById('ag5hBar');
+      ag5hBar.style.width = ag5hPct + '%';
+      ag5hBar.className = 'progress-bar-fill ' + (ag5hPct >= 85 ? 'fill-red' : (ag5hPct >= 60 ? 'fill-yellow' : 'fill-green'));
+
+      // Context Window Bar
+      const ctx = q.context_window || {};
+      const ctxPct = ctx.percent || 0;
+      document.getElementById('agCtxHuman').innerText = `${ctx.human || '0k / 1.0M'} (${ctxPct}%)`;
+      const agCtxBar = document.getElementById('agCtxBar');
+      agCtxBar.style.width = ctxPct + '%';
+      agCtxBar.className = 'progress-bar-fill ' + (ctxPct >= 80 ? 'fill-red' : (ctxPct >= 50 ? 'fill-yellow' : 'fill-green'));
+
+      // 2. Codex
+      const cdx = data.codex || {};
+      const cdxBadge = document.getElementById('cdxBadge');
+      if (cdx.running) {
+        cdxBadge.className = 'badge badge-running';
+        cdxBadge.innerHTML = '<span class="dot dot-pulse"></span> 执行中';
+      } else if (cdx.installed) {
+        cdxBadge.className = 'badge badge-running';
+        cdxBadge.innerHTML = '<span class="dot"></span> 就绪 (已安装)';
+      } else {
+        cdxBadge.className = 'badge badge-stopped';
+        cdxBadge.innerHTML = '<span class="dot"></span> 未安装';
+      }
+      document.getElementById('cdxInstalled').innerText = cdx.installed ? '已就绪' : '未检测到';
+      document.getElementById('cdxVersion').innerText = cdx.app_version || '未知';
+      document.getElementById('cdxEvents').innerText = (cdx.total_log_events || 0).toLocaleString() + ' 条';
+      document.getElementById('cdxLast').innerText = cdx.last_active || '暂无';
+
+      // 2. Codex 5h Quota Bar
+      const cdx5h = cdx.five_hour_usage || {};
+      const cdx5hPct = cdx5h.percent || 0;
+      document.getElementById('cdx5hCountdown').innerText = cdx5h.reset_countdown_human || '随时可用';
+      document.getElementById('cdx5hHuman').innerText = `${cdx5h.human_used || '0次'} (${cdx5hPct}%)`;
+      const cdx5hBar = document.getElementById('cdx5hBar');
+      cdx5hBar.style.width = cdx5hPct + '%';
+      cdx5hBar.className = 'progress-bar-fill ' + (cdx5hPct >= 85 ? 'fill-red' : (cdx5hPct >= 60 ? 'fill-yellow' : 'fill-green'));
+
+      // 3. Volcengine
+      const volc = data.volcengine || {};
+      const volcBadge = document.getElementById('volcBadge');
+      if (volc.healthy) {
+        volcBadge.className = 'badge badge-running';
+        volcBadge.innerHTML = '<span class="dot dot-pulse"></span> 通道畅通';
+      } else if (volc.configured) {
+        volcBadge.className = 'badge badge-warning';
+        volcBadge.innerHTML = '<span class="dot"></span> 异常告警';
+      } else {
+        volcBadge.className = 'badge badge-stopped';
+        volcBadge.innerHTML = '<span class="dot"></span> 待配置';
+      }
+      document.getElementById('volcModel').innerText = volc.model_name || '-';
+      document.getElementById('volcLatency').innerText = volc.latency_ms ? `${volc.latency_ms} ms` : '-';
+      const wq = volc.weekly_quota || {};
+      document.getElementById('volcWeek').innerText = wq.percent ? `${wq.percent}%` : '-';
+      document.getElementById('volcMsg').innerText = volc.message || '-';
+
+      const q5h = volc.five_hour_quota || {};
+      const pct = q5h.percent || 0;
+      document.getElementById('volcPct').innerText = `${q5h.human_used ? q5h.human_used + ' ' : ''}(${pct}%)`;
+      document.getElementById('volcReset').innerText = q5h.reset_countdown_human || '滚动计算中';
+
+      const bar = document.getElementById('volcBar');
+      bar.style.width = pct + '%';
+      bar.className = 'progress-bar-fill ' + (pct >= 85 ? 'fill-red' : (pct >= 60 ? 'fill-yellow' : 'fill-green'));
+
+      // 4. WorkBuddy
+      const wb = data.workbuddy || {};
+      const wbBadge = document.getElementById('wbBadge');
+      const todayStatus = document.getElementById('wbTodayStatus');
+      const btn = document.getElementById('btnCheckin');
+
+      // 4. WorkBuddy 5h Quota Bar
+      const wb5h = wb.five_hour_usage || {};
+      const wb5hPct = wb5h.percent || 0;
+      document.getElementById('wb5hCountdown').innerText = wb5h.reset_countdown_human || '5小时滑动';
+      document.getElementById('wb5hHuman').innerText = `${wb5h.human_used || '0次'} (${wb5hPct}%)`;
+      const wb5hBar = document.getElementById('wb5hBar');
+      wb5hBar.style.width = wb5hPct + '%';
+      wb5hBar.className = 'progress-bar-fill ' + (wb5hPct >= 85 ? 'fill-red' : (wb5hPct >= 60 ? 'fill-yellow' : 'fill-green'));
+
+      if (wb.today_checked_in) {
+        wbBadge.className = 'badge badge-running';
+        wbBadge.innerHTML = '<span class="dot"></span> 今日已签到';
+        todayStatus.innerText = '✅ 今日已打卡';
+        todayStatus.style.color = 'var(--green)';
+        btn.innerText = '🎉 今日已签到';
+        btn.className = 'btn';
+        btn.disabled = false;
+      } else {
+        wbBadge.className = 'badge badge-warning';
+        wbBadge.innerHTML = '<span class="dot"></span> 今日未签到';
+        todayStatus.innerText = '⏳ 今日尚未打卡';
+        todayStatus.style.color = 'var(--yellow)';
+        btn.innerText = '🎁 立即打卡';
+        btn.className = 'btn btn-primary';
+        btn.disabled = false;
+      }
+
+      document.getElementById('wbDays').innerText = wb.consecutive_days || 0;
+      document.getElementById('wbPoints').innerText = (wb.total_points || 0).toLocaleString();
+
+      const histBox = document.getElementById('wbHistory');
+      if (wb.recent_history && wb.recent_history.length > 0) {
+        histBox.innerHTML = wb.recent_history.slice().reverse().map(h => `
+          <div class="history-item">
+            <span>${h.date} ${h.time ? h.time.split(' ')[1] : ''}</span>
+            <span style="color:${h.success ? 'var(--green)' : 'var(--red)'}">${h.message || (h.success ? '成功' : '失败')}</span>
+          </div>
+        `).join('');
+      } else {
+        histBox.innerHTML = '<div class="history-item"><span>暂无记录</span></div>';
+      }
+    }
+
+    async function triggerCheckin() {
+      const btn = document.getElementById('btnCheckin');
+      btn.innerText = '⏳ 打卡中...';
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/checkin/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: true })
+        });
+        const res = await resp.json();
+        alert(res.message || '操作已执行');
+        fetchStatus();
+      } catch (e) {
+        alert('打卡请求失败: ' + e);
+        btn.disabled = false;
+      }
+    }
+
+    function openConfigModal() {
+      fetch('/api/config')
+        .then(r => r.json())
+        .then(cfg => {
+          document.getElementById('cfgVolcKey').value = '';
+          document.getElementById('cfgVolcModel').value = (cfg.volcengine && cfg.volcengine.model) || 'doubao-seed-evolving';
+          document.getElementById('cfgWbToken').value = '';
+          document.getElementById('cfgWbTime').value = (cfg.workbuddy && cfg.workbuddy.checkin_time) || '09:00';
+          document.getElementById('cfgDemo').checked = (cfg.volcengine && cfg.volcengine.demo_mode) || false;
+          document.getElementById('configModal').style.display = 'flex';
+        });
+    }
+
+    function closeConfigModal() {
+      document.getElementById('configModal').style.display = 'none';
+    }
+
+    async function saveSettings() {
+      const volcKey = document.getElementById('cfgVolcKey').value.trim();
+      const volcModel = document.getElementById('cfgVolcModel').value.trim();
+      const wbToken = document.getElementById('cfgWbToken').value.trim();
+      const wbTime = document.getElementById('cfgWbTime').value.trim();
+      const isDemo = document.getElementById('cfgDemo').checked;
+
+      const payload = {
+        volcengine: {
+          model: volcModel || 'doubao-seed-evolving',
+          demo_mode: isDemo
+        },
+        workbuddy: {
+          checkin_time: wbTime || '09:00',
+          demo_mode: isDemo
+        }
+      };
+      if (volcKey) payload.volcengine.api_key = volcKey;
+      if (wbToken) payload.workbuddy.token = wbToken;
+
+      try {
+        const r = await fetch('/api/config/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const res = await r.json();
+        alert(res.message || '保存成功');
+        closeConfigModal();
+        fetchStatus(true);
+      } catch (e) {
+        alert('保存失败: ' + e);
+      }
+    }
+
+    // Auto-poll every 5 seconds
+    fetchStatus();
+    setInterval(fetchStatus, 5000);
+  </script>
+</body>
+</html>

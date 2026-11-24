@@ -1,0 +1,31 @@
+# 运行期状态与凭证（防泄露）
+config.json
+checkin_history.json
+server.log
+server.pid
+
+# 编译生成的桌面应用与发布包
+*.app/
+*.zip
+*.tar.gz
+*.iconset/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# 操作系统与编辑器临时文件
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.vscode/
+.idea/
+*.swp
+*.swo
