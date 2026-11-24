@@ -21,8 +21,8 @@
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
-    body { background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px; }
-    .container { max-width: 1280px; margin: 0 auto; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px; overflow-x: hidden; }
+    .container { max-width: 1320px; margin: 0 auto; transition: margin-right 0.3s ease; }
 
     /* Header */
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 12px; }
@@ -35,6 +35,10 @@
     .btn:hover { background: #30363d; border-color: #8b949e; }
     .btn-primary { background: #238636; border-color: rgba(240, 246, 252, 0.1); color: #fff; }
     .btn-primary:hover { background: #2ea043; }
+    .btn-chat { background: linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(188, 140, 255, 0.15)); border: 1px solid rgba(88, 166, 255, 0.35); color: #fff; font-weight: 600; }
+    .btn-chat:hover { background: linear-gradient(135deg, rgba(88, 166, 255, 0.25), rgba(188, 140, 255, 0.25)); border-color: var(--accent); }
+    .btn-danger { background: rgba(248, 81, 73, 0.15); border-color: rgba(248, 81, 73, 0.3); color: var(--red); }
+    .btn-danger:hover { background: rgba(248, 81, 73, 0.25); }
     .server-time { font-size: 12px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
 
     /* Grid layout */
@@ -67,7 +71,7 @@
     .progress-bar-fill { height: 100%; border-radius: 6px; transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.4s ease; }
     .fill-green { background: linear-gradient(90deg, #238636, #3fb950); }
     .fill-yellow { background: linear-gradient(90deg, #d29922, #e3b341); }
-    .fill-red { background: linear-gradient(90deg, #da3633, #f85149); }
+    .fill-red { background: linear-gradient(90deg, #da3633, #f85149); box-shadow: 0 0 8px rgba(248, 81, 73, 0.6); }
 
     /* Dual model container */
     .dual-models-box { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -81,32 +85,177 @@
     .points-val { font-size: 24px; font-weight: 700; color: var(--green); font-family: ui-monospace, SFMono-Regular, monospace; }
 
     /* Workbuddy checkin panel */
-    .checkin-action { background: rgba(33, 38, 45, 0.6); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
-    .checkin-meta { font-size: 12px; color: var(--text-muted); }
-    .checkin-meta strong { color: var(--green); font-size: 14px; }
     .history-item { font-size: 12px; padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; color: var(--text-muted); }
     .history-item:last-child { border-bottom: none; }
 
-    /* Modal */
-    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 100; }
-    .modal { background: #161b22; border: 1px solid #30363d; border-radius: 12px; width: 90%; max-width: 520px; padding: 24px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
-    .modal h3 { font-size: 18px; margin-bottom: 16px; }
-    .form-group { margin-bottom: 14px; }
-    .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
-    .form-control { width: 100%; background: #0d1117; border: 1px solid #30363d; color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 13px; }
-    .form-control:focus { outline: none; border-color: var(--accent); }
-    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    /* =========================================================================
+       AG-UI Right Drawer (流式对话抽屉)
+       ========================================================================= */
+    .drawer-backdrop {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px);
+      z-index: 150; opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    }
+    .drawer-backdrop.active { opacity: 1; pointer-events: auto; }
+
+    .chat-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 440px; max-width: 90vw;
+      background: rgba(18, 22, 28, 0.96); backdrop-filter: blur(20px);
+      border-left: 1px solid var(--card-border); box-shadow: -10px 0 40px rgba(0, 0, 0, 0.6);
+      z-index: 160; display: flex; flex-direction: column;
+      transform: translateX(100%); transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .chat-drawer.open { transform: translateX(0); }
+
+    .drawer-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--card-border);
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(13, 17, 23, 0.5);
+    }
+    .drawer-header-left { display: flex; align-items: center; gap: 10px; }
+    .drawer-icon { font-size: 20px; }
+    .drawer-title h3 { font-size: 15px; font-weight: 600; }
+    .drawer-title span { font-size: 11px; color: var(--text-muted); }
+    .drawer-actions { display: flex; align-items: center; gap: 6px; }
+
+    .drawer-agent-bar {
+      padding: 10px 20px; background: rgba(22, 27, 34, 0.5);
+      border-bottom: 1px solid var(--card-border); display: flex; align-items: center; gap: 8px; font-size: 12px;
+    }
+    .agent-select {
+      flex: 1; background: #0d1117; color: var(--text); border: 1px solid #30363d;
+      padding: 6px 10px; border-radius: 6px; font-size: 12px; outline: none; cursor: pointer;
+    }
+    .agent-select:focus { border-color: var(--accent); }
+
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;
+      scroll-behavior: smooth;
+    }
+    .msg-row { display: flex; flex-direction: column; max-width: 92%; }
+    .msg-user { align-self: flex-end; }
+    .msg-agent { align-self: flex-start; }
+
+    .msg-bubble {
+      padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; word-break: break-word;
+    }
+    .msg-user .msg-bubble {
+      background: #1f6feb; color: #fff; border-bottom-right-radius: 2px;
+    }
+    .msg-agent .msg-bubble {
+      background: rgba(33, 38, 45, 0.85); border: 1px solid var(--card-border);
+      color: var(--text); border-bottom-left-radius: 2px;
+    }
+    .msg-sender { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 5px; }
+
+    /* Tool Call Card */
+    .tool-call-card {
+      background: rgba(13, 17, 23, 0.7); border: 1px solid rgba(88, 166, 255, 0.3);
+      border-radius: 8px; padding: 8px 12px; font-size: 12px; margin: 6px 0;
+    }
+    .tool-header { display: flex; justify-content: space-between; align-items: center; color: var(--accent); font-weight: 500; }
+    .tool-result { margin-top: 4px; color: var(--text-muted); font-size: 11px; font-family: ui-monospace, monospace; }
+
+    /* Typing cursor */
+    .typing-cursor {
+      display: inline-block; width: 6px; height: 13px; background: var(--accent);
+      margin-left: 2px; vertical-align: middle; animation: blink 0.8s infinite;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    /* Quick Prompts Chips */
+    .quick-prompts {
+      padding: 8px 20px; display: flex; gap: 6px; overflow-x: auto; white-space: nowrap;
+      border-top: 1px solid rgba(255, 255, 255, 0.05); background: rgba(13, 17, 23, 0.4);
+    }
+    .chip {
+      background: rgba(33, 38, 45, 0.8); border: 1px solid var(--card-border);
+      color: var(--text-muted); font-size: 11px; padding: 4px 9px; border-radius: 12px; cursor: pointer; transition: all 0.2s;
+    }
+    .chip:hover { color: var(--accent); border-color: rgba(88, 166, 255, 0.4); background: rgba(88, 166, 255, 0.1); }
+
+    /* Chat Input Bar */
+    .chat-input-bar {
+      padding: 12px 20px 16px; border-top: 1px solid var(--card-border);
+      background: rgba(13, 17, 23, 0.7); display: flex; gap: 10px; align-items: flex-end;
+    }
+    .chat-textarea {
+      flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+      color: var(--text); padding: 9px 12px; font-size: 13px; resize: none; min-height: 40px; max-height: 120px; outline: none;
+    }
+    .chat-textarea:focus { border-color: var(--accent); }
+    .btn-send {
+      width: 40px; height: 40px; background: #238636; border: none; border-radius: 8px;
+      color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 15px; transition: all 0.2s;
+    }
+    .btn-send:hover { background: #2ea043; }
+    .btn-send:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
+
+    /* =========================================================================
+       90% Circuit Breaker Modal (Human-in-the-Loop 熔断模态审批)
+       ========================================================================= */
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 200; }
+    .modal { background: #161b22; border: 1px solid #30363d; border-radius: 14px; width: 92%; max-width: 540px; padding: 24px; box-shadow: 0 10px 50px rgba(0, 0, 0, 0.7); animation: modalIn 0.25s ease-out; }
+    @keyframes modalIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+    .circuit-modal { border: 1px solid rgba(248, 81, 73, 0.4); box-shadow: 0 0 35px rgba(248, 81, 73, 0.25); }
+    .circuit-header { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
+    .circuit-glow {
+      width: 46px; height: 46px; border-radius: 12px; background: rgba(248, 81, 73, 0.15);
+      border: 1px solid rgba(248, 81, 73, 0.35); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0;
+    }
+    .circuit-title h3 { font-size: 17px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .circuit-title p { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+
+    .circuit-alert-box {
+      background: rgba(248, 81, 73, 0.08); border: 1px solid rgba(248, 81, 73, 0.25);
+      border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px;
+    }
+    .circuit-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .circuit-row:last-child { margin-bottom: 0; }
+    .circuit-msg { font-size: 12px; color: #ff7b72; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(248, 81, 73, 0.2); }
+
+    .circuit-options-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; }
+    .circuit-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+    .circuit-option {
+      background: rgba(13, 17, 23, 0.7); border: 1px solid var(--card-border);
+      border-radius: 10px; padding: 12px; cursor: pointer; transition: all 0.2s; display: flex; gap: 12px; align-items: flex-start;
+    }
+    .circuit-option:hover { border-color: rgba(88, 166, 255, 0.5); background: rgba(88, 166, 255, 0.05); }
+    .circuit-option.active { border-color: var(--accent); background: rgba(88, 166, 255, 0.12); box-shadow: 0 0 10px rgba(88, 166, 255, 0.2); }
+    .circuit-option.danger.active { border-color: var(--red); background: rgba(248, 81, 73, 0.12); box-shadow: 0 0 10px rgba(248, 81, 73, 0.2); }
+    .opt-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #484f58; margin-top: 2px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .circuit-option.active .opt-radio { border-color: var(--accent); }
+    .circuit-option.danger.active .opt-radio { border-color: var(--red); }
+    .opt-radio-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: none; }
+    .circuit-option.active .opt-radio-dot { display: block; }
+    .circuit-option.danger.active .opt-radio-dot { background: var(--red); }
+    .opt-content h4 { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+    .opt-content p { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(100px);
+      background: #161b22; border: 1px solid var(--card-border); color: var(--text);
+      padding: 10px 18px; border-radius: 30px; font-size: 13px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+      z-index: 300; transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex; align-items: center; gap: 8px;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
 
     /* Responsive */
     @media (max-width: 768px) {
       body { padding: 16px; }
       .grid { grid-template-columns: 1fr; }
       .dual-models-box { grid-template-columns: 1fr; }
+      .chat-drawer { width: 100vw; max-width: 100vw; }
     }
   </style>
 </head>
 <body>
-  <div class="container">
+  <!-- 抽屉半透明背板 -->
+  <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeChatDrawer()"></div>
+
+  <div class="container" id="mainContainer">
     <header>
       <div class="brand">
         <div class="brand-icon">🛸</div>
@@ -119,6 +268,9 @@
         <span id="aguiStatus" class="highlight-pill" style="display:inline-flex; align-items:center; gap:5px; background:rgba(63,185,80,0.15); color:var(--green); border-color:rgba(63,185,80,0.3); font-size:12px; padding: 4px 10px;">
           <span class="dot dot-pulse"></span> AG-UI 实时流已连接
         </span>
+        <button class="btn btn-chat" id="btnToggleDrawer" onclick="toggleChatDrawer()">
+          <span>💬</span> 智能体指令台
+        </button>
         <span class="server-time" id="serverTime">检测中...</span>
         <button class="btn" onclick="fetchStatus(true)">🔄 刷新</button>
         <button class="btn" onclick="openConfigModal()">⚙️ 设置凭据</button>
@@ -356,38 +508,183 @@
     </div>
   </div>
 
+  <!-- =========================================================================
+       AG-UI 右侧智能体流式对话抽屉
+       ========================================================================= -->
+  <aside class="chat-drawer" id="chatDrawer">
+    <div class="drawer-header">
+      <div class="drawer-header-left">
+        <span class="drawer-icon">💬</span>
+        <div class="drawer-title">
+          <h3>AG-UI 智能体指令台</h3>
+          <span>Protocol 1.0 流式编排 · 人机协同</span>
+        </div>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="triggerCircuitBreakerTest()" title="演练 90% 额度安全熔断">🧪 演练90%熔断</button>
+        <button class="btn" style="padding: 4px 8px; font-size: 11px;" onclick="clearChat()" title="清空对话记录">🗑️</button>
+        <button class="btn" style="padding: 4px 8px; font-size: 12px;" onclick="closeChatDrawer()">✕</button>
+      </div>
+    </div>
+
+    <div class="drawer-agent-bar">
+      <label style="color:var(--text-muted); font-weight:500;">调度代理：</label>
+      <select id="chatAgentSelect" class="agent-select">
+        <option value="antigravity">⚡ Google Antigravity (官方内核)</option>
+        <option value="volcengine">🌋 火山方舟 Coding API</option>
+        <option value="codex">🧠 OpenAI Codex</option>
+        <option value="workbuddy">🤖 WorkBuddy 腾讯全场景</option>
+      </select>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg-row msg-agent">
+        <div class="msg-sender">🛸 Cockpit Agent</div>
+        <div class="msg-bubble">
+          您好！这里是 <strong>AG-UI 智能体指令调度中心</strong>。<br><br>
+          已通过 AG-UI 协议直连各大智能体运行时。您可以向选定的 Agent 发出指令，实时查看流式输出、工具调用（Tool Call）状态，或演练 <strong>90% 额度熔断审批</strong>。
+        </div>
+      </div>
+    </div>
+
+    <!-- 快捷药丸 -->
+    <div class="quick-prompts">
+      <span class="chip" onclick="sendQuickPrompt('🎁 立即执行 WorkBuddy 签到打卡并核算积分')">🎁 立即打卡领积分</span>
+      <span class="chip" onclick="sendQuickPrompt('📊 查询 Antigravity 官方当前配额与重置时间')">📊 查询官方权威配额</span>
+      <span class="chip" onclick="sendQuickPrompt('🚨 演练 90% 额度超额熔断保护')">🚨 演练90%熔断</span>
+    </div>
+
+    <!-- 输入栏 -->
+    <div class="chat-input-bar">
+      <textarea id="chatInput" class="chat-textarea" rows="1" placeholder="发送指令（Enter 发送，Shift+Enter 换行）..." onkeydown="handleChatInputKey(event)"></textarea>
+      <button class="btn-send" id="btnSend" onclick="sendChatMessage()" title="发送指令">
+        <span>➤</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- =========================================================================
+       90% 额度熔断审批模态弹窗 (Human-in-the-Loop)
+       ========================================================================= -->
+  <div class="modal-overlay" id="circuitModal">
+    <div class="modal circuit-modal">
+      <div class="circuit-header">
+        <div class="circuit-glow">🚨</div>
+        <div class="circuit-title">
+          <h3>触碰 90% 额度安全熔断警戒线！</h3>
+          <p>AG-UI Human-in-the-Loop 人机协同保护机制已自动挂起后续自动化调用</p>
+        </div>
+      </div>
+
+      <div class="circuit-alert-box">
+        <div class="circuit-row">
+          <span style="color:var(--text-muted);">拦截智能体：</span>
+          <strong id="cbAgent" style="color:var(--text);">Google Antigravity</strong>
+        </div>
+        <div class="circuit-row">
+          <span style="color:var(--text-muted);">当前 5小时 配额消耗：</span>
+          <span class="badge badge-critical" id="cbUsage" style="font-size:13px; font-weight:700;">92.5%</span>
+        </div>
+        <div class="circuit-row">
+          <span style="color:var(--text-muted);">系统设防阈值：</span>
+          <span class="highlight-pill" style="color:var(--yellow); border-color:rgba(210,153,34,0.35);">90.0% (预设安全线)</span>
+        </div>
+        <div class="circuit-msg" id="cbMsg">
+          Antigravity 5小时额度已达 92.5%，触碰 90% 警戒线！为避免 Google 官方阶梯降级限流，请审批人机介入决策。
+        </div>
+      </div>
+
+      <div class="circuit-options-title">请审批人机协同处置方案：</div>
+      <div class="circuit-options">
+        <div class="circuit-option active" id="opt-switch_backup" onclick="selectCircuitAction('switch_backup')">
+          <div class="opt-radio"><div class="opt-radio-dot"></div></div>
+          <div class="opt-content">
+            <h4>🔄 自动切换至高阶备用模型池 (推荐)</h4>
+            <p>将后续请求无感分流至 Claude 3.5 Sonnet / Pro，保障业务流不中断，待滑动窗口自然冷却。</p>
+          </div>
+        </div>
+
+        <div class="circuit-option" id="opt-pause_tasks" onclick="selectCircuitAction('pause_tasks')">
+          <div class="opt-radio"><div class="opt-radio-dot"></div></div>
+          <div class="opt-content">
+            <h4>⏸️ 挂起后续调度并等待配额复苏</h4>
+            <p>暂停后台自动化轮询与定时签到任务，待 5 小时滑动窗口到期重置后自动恢复。</p>
+          </div>
+        </div>
+
+        <div class="circuit-option danger" id="opt-ignore_warning" onclick="selectCircuitAction('ignore_warning')">
+          <div class="opt-radio"><div class="opt-radio-dot"></div></div>
+          <div class="opt-content">
+            <h4>⚠️ 风险放行并强制继续运行</h4>
+            <p>单次忽略 90% 警戒线，强行使用当前模型直至触发官方 HTTP 429 物理限流。</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button class="btn btn-primary" id="btnSubmitCircuit" style="padding:10px 22px; font-size:14px;" onclick="submitCircuitDecision()">
+          ✅ 确认授权并恢复运行
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings Modal -->
   <div class="modal-overlay" id="configModal">
     <div class="modal">
       <h3>⚙️ 快速配置凭证</h3>
-      <div class="form-group">
-        <label>火山引擎 API Key / Token (用于方舟 Coding Plan 监控)</label>
-        <input type="password" id="cfgVolcKey" class="form-control" placeholder="填入火山方舟 API Key">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">火山引擎 API Key / Token (用于方舟 Coding Plan 监控)</label>
+        <input type="password" id="cfgVolcKey" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" placeholder="填入火山方舟 API Key">
       </div>
-      <div class="form-group">
-        <label>火山引擎模型标识</label>
-        <input type="text" id="cfgVolcModel" class="form-control" value="doubao-seed-evolving" placeholder="例如 doubao-seed-evolving">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">火山引擎模型标识</label>
+        <input type="text" id="cfgVolcModel" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" value="doubao-seed-evolving" placeholder="例如 doubao-seed-evolving">
       </div>
-      <div class="form-group">
-        <label>WorkBuddy Token / Cookie (用于自动打卡领积分)</label>
-        <input type="password" id="cfgWbToken" class="form-control" placeholder="填入 Bearer Token 或 Cookie 凭据">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">WorkBuddy Token / Cookie (用于自动打卡领积分)</label>
+        <input type="password" id="cfgWbToken" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" placeholder="填入 Bearer Token 或 Cookie 凭据">
       </div>
-      <div class="form-group">
-        <label>每日定时签到时间 (24小时制，例如 09:00)</label>
-        <input type="text" id="cfgWbTime" class="form-control" value="09:00">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">每日定时签到时间 (24小时制，例如 09:00)</label>
+        <input type="text" id="cfgWbTime" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" value="09:00">
       </div>
-      <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+      <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom:16px;">
         <input type="checkbox" id="cfgDemo" style="cursor: pointer;">
-        <label for="cfgDemo" style="margin: 0; cursor: pointer;">启用演示模式（若暂时没有填入真实 Key，自动模拟配额与签到效果）</label>
+        <label for="cfgDemo" style="margin: 0; cursor: pointer; font-size:13px; color:var(--text-muted);">启用演示模式（若暂时没有填入真实 Key，自动模拟配额与签到效果）</label>
       </div>
-      <div class="modal-footer">
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
         <button class="btn" onclick="closeConfigModal()">取消</button>
         <button class="btn btn-primary" onclick="saveCredentials()">💾 保存并生效</button>
       </div>
     </div>
   </div>
 
+  <!-- Toast 提示条 -->
+  <div class="toast" id="toastBox">
+    <span id="toastIcon">✅</span>
+    <span id="toastMsg">操作已成功</span>
+  </div>
+
   <script>
+    // 警戒线阈值定义：>=90% 红色高亮，70%-89.9% 黄色，<70% 绿色
+    function getBarFillClass(pct) {
+      if (pct >= 90) return 'fill-red';
+      if (pct >= 70) return 'fill-yellow';
+      return 'fill-green';
+    }
+
+    function showToast(msg, icon = '✅') {
+      const toast = document.getElementById('toastBox');
+      document.getElementById('toastMsg').innerText = msg;
+      document.getElementById('toastIcon').innerText = icon;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3200);
+    }
+
+    // =========================================================================
+    // 仪表盘渲染引擎
+    // =========================================================================
     async function fetchStatus(showFeedback = false) {
       try {
         const resp = await fetch('/api/status');
@@ -395,12 +692,7 @@
         const data = await resp.json();
         renderDashboard(data);
         if (showFeedback) {
-          const btn = event?.target;
-          if (btn) {
-            const org = btn.innerHTML;
-            btn.innerHTML = '✅ 已更新';
-            setTimeout(() => btn.innerHTML = org, 1000);
-          }
+          showToast('仪表盘状态已同步至最新');
         }
       } catch (err) {
         console.error('Fetch status error:', err);
@@ -432,14 +724,14 @@
       document.getElementById('agCache').innerText = `${tk.cache_savings_ratio || '1.0x'} (${Math.round((tk.total_cached || 0) / 1000000 * 10) / 10}M 命中)`;
       document.getElementById('agLast').innerText = ag.last_active || '暂无';
 
-      // 1.1 Antigravity 5h Quota Bar
+      // 1.1 Antigravity 5h Quota Bar (90% 警戒线)
       const ag5h = q.five_hour_usage || {};
       const ag5hPct = ag5h.percent || 0;
       document.getElementById('ag5hCountdown').innerText = ag5h.reset_countdown_human || '滑动重置';
       document.getElementById('ag5hHuman').innerText = ag5h.human_used ? ag5h.human_used : `${ag5hPct}%`;
       const ag5hBar = document.getElementById('ag5hBar');
       ag5hBar.style.width = ag5hPct + '%';
-      ag5hBar.className = 'progress-bar-fill ' + (ag5hPct >= 85 ? 'fill-red' : (ag5hPct >= 60 ? 'fill-yellow' : 'fill-green'));
+      ag5hBar.className = 'progress-bar-fill ' + getBarFillClass(ag5hPct);
 
       // 1.2 Antigravity Weekly Quota Bar (周额度)
       const agWk = q.weekly_usage || {};
@@ -448,7 +740,7 @@
       document.getElementById('agWkHuman').innerText = agWk.human_used ? agWk.human_used : `${agWkPct}%`;
       const agWkBar = document.getElementById('agWkBar');
       agWkBar.style.width = agWkPct + '%';
-      agWkBar.className = 'progress-bar-fill ' + (agWkPct >= 85 ? 'fill-red' : (agWkPct >= 60 ? 'fill-yellow' : 'fill-green'));
+      agWkBar.className = 'progress-bar-fill ' + getBarFillClass(agWkPct);
 
       // 1.3 Context Window Bar
       const ctx = q.context_window || {};
@@ -456,7 +748,7 @@
       document.getElementById('agCtxHuman').innerText = `${ctx.human || '0k / 1.0M'} (${ctxPct}%)`;
       const agCtxBar = document.getElementById('agCtxBar');
       agCtxBar.style.width = ctxPct + '%';
-      agCtxBar.className = 'progress-bar-fill ' + (ctxPct >= 80 ? 'fill-red' : (ctxPct >= 50 ? 'fill-yellow' : 'fill-green'));
+      agCtxBar.className = 'progress-bar-fill ' + (ctxPct >= 90 ? 'fill-red' : (ctxPct >= 70 ? 'fill-yellow' : 'fill-green'));
 
       // 1.4 Dual Models Breakdown (两套模型)
       const dualModels = q.dual_models || [];
@@ -470,7 +762,7 @@
             </div>
             <div class="sub-model-meta">5h已用: <strong>${m.five_hour_used}</strong> · 周: <strong>${m.weekly_used}</strong></div>
             <div class="progress-bar-bg">
-              <div class="progress-bar-fill ${m.percent_5h >= 85 ? 'fill-red' : (m.percent_5h >= 60 ? 'fill-yellow' : 'fill-green')}" style="width: ${m.percent_5h}%;"></div>
+              <div class="progress-bar-fill ${getBarFillClass(m.percent_5h)}" style="width: ${m.percent_5h}%;"></div>
             </div>
           </div>
         `).join('');
@@ -501,7 +793,7 @@
       document.getElementById('cdx5hHuman').innerText = `${cdx5h.human_used || '0次'} (${cdx5hPct}%)`;
       const cdx5hBar = document.getElementById('cdx5hBar');
       cdx5hBar.style.width = cdx5hPct + '%';
-      cdx5hBar.className = 'progress-bar-fill ' + (cdx5hPct >= 85 ? 'fill-red' : (cdx5hPct >= 60 ? 'fill-yellow' : 'fill-green'));
+      cdx5hBar.className = 'progress-bar-fill ' + getBarFillClass(cdx5hPct);
 
       // 2.2 Codex Weekly Quota Bar (周配额)
       const cdxWk = cdx.weekly_usage || {};
@@ -510,7 +802,7 @@
       document.getElementById('cdxWkHuman').innerText = `${cdxWk.human_used || '0次'} (${cdxWkPct}%)`;
       const cdxWkBar = document.getElementById('cdxWkBar');
       cdxWkBar.style.width = cdxWkPct + '%';
-      cdxWkBar.className = 'progress-bar-fill ' + (cdxWkPct >= 85 ? 'fill-red' : (cdxWkPct >= 60 ? 'fill-yellow' : 'fill-green'));
+      cdxWkBar.className = 'progress-bar-fill ' + getBarFillClass(cdxWkPct);
 
       // 2.3 Codex 重置次数与到期时间
       const rem5h = (cdx5h.remaining_events !== undefined ? cdx5h.remaining_events : 2500).toLocaleString();
@@ -559,7 +851,7 @@
       document.getElementById('wb5hHuman').innerText = `${wb5h.human_used || '0次'} (${wb5hPct}%)`;
       const wb5hBar = document.getElementById('wb5hBar');
       wb5hBar.style.width = wb5hPct + '%';
-      wb5hBar.className = 'progress-bar-fill ' + (wb5hPct >= 85 ? 'fill-red' : (wb5hPct >= 60 ? 'fill-yellow' : 'fill-green'));
+      wb5hBar.className = 'progress-bar-fill ' + getBarFillClass(wb5hPct);
 
       // 3.4 打卡流水记录
       const histBox = document.getElementById('wbHistory');
@@ -600,9 +892,256 @@
 
       const bar = document.getElementById('volcBar');
       bar.style.width = pct + '%';
-      bar.className = 'progress-bar-fill ' + (pct >= 85 ? 'fill-red' : (pct >= 60 ? 'fill-yellow' : 'fill-green'));
+      bar.className = 'progress-bar-fill ' + getBarFillClass(pct);
+
+      // 5. 检查是否触发 90% 熔断
+      if (data.circuit_breaker && data.circuit_breaker.triggered) {
+        openCircuitModal(data.circuit_breaker);
+      }
     }
 
+    // =========================================================================
+    // AG-UI 右侧智能体流式对话抽屉交互
+    // =========================================================================
+    const chatDrawer = document.getElementById('chatDrawer');
+    const drawerBackdrop = document.getElementById('drawerBackdrop');
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput = document.getElementById('chatInput');
+    const btnSend = document.getElementById('btnSend');
+    let isGenerating = false;
+
+    function toggleChatDrawer() {
+      if (chatDrawer.classList.contains('open')) {
+        closeChatDrawer();
+      } else {
+        openChatDrawer();
+      }
+    }
+
+    function openChatDrawer() {
+      chatDrawer.classList.add('open');
+      drawerBackdrop.classList.add('active');
+      setTimeout(() => chatInput.focus(), 200);
+    }
+
+    function closeChatDrawer() {
+      chatDrawer.classList.remove('open');
+      drawerBackdrop.classList.remove('active');
+    }
+
+    function clearChat() {
+      chatMessages.innerHTML = `
+        <div class="msg-row msg-agent">
+          <div class="msg-sender">🛸 Cockpit Agent</div>
+          <div class="msg-bubble">对话记录已重置。您可以随时向 Agent 发出新指令！</div>
+        </div>
+      `;
+    }
+
+    function handleChatInputKey(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    }
+
+    function sendQuickPrompt(prompt) {
+      chatInput.value = prompt;
+      openChatDrawer();
+      sendChatMessage();
+    }
+
+    async function sendChatMessage() {
+      const message = chatInput.value.trim();
+      if (!message || isGenerating) return;
+
+      const agent = document.getElementById('chatAgentSelect').value;
+      const agentName = document.getElementById('chatAgentSelect').selectedOptions[0].text;
+
+      // 1. 追加用户消息气泡
+      appendMessage('user', message, '👤 我');
+      chatInput.value = '';
+      isGenerating = true;
+      btnSend.disabled = true;
+
+      // 2. 创建 Agent 占位气泡
+      const agentMsgId = 'agent-msg-' + Date.now();
+      const row = document.createElement('div');
+      row.className = 'msg-row msg-agent';
+      row.innerHTML = `
+        <div class="msg-sender">${agentName}</div>
+        <div class="msg-bubble" id="${agentMsgId}"><span class="typing-cursor"></span></div>
+      `;
+      chatMessages.appendChild(row);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+
+      const bubbleEl = document.getElementById(agentMsgId);
+      let fullText = '';
+
+      try {
+        const resp = await fetch('/api/agent/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent, message })
+        });
+
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop(); // 保留不完整的块
+
+          for (const block of lines) {
+            if (!block.trim()) continue;
+            let eventType = 'message';
+            let dataStr = '';
+
+            const subLines = block.split('\n');
+            for (const l of subLines) {
+              if (l.startsWith('event: ')) eventType = l.replace('event: ', '').trim();
+              if (l.startsWith('data: ')) dataStr = l.replace('data: ', '').trim();
+            }
+
+            if (!dataStr) continue;
+            let payload = {};
+            try { payload = JSON.parse(dataStr); } catch (e) { payload = { raw: dataStr }; }
+
+            // 处理 AG-UI 流式事件
+            if (eventType === 'RUN_STARTED') {
+              console.log('[AG-UI Chat] Agent Run Started:', payload);
+            } else if (eventType === 'TOOL_CALL_START') {
+              const toolCard = document.createElement('div');
+              toolCard.className = 'tool-call-card';
+              toolCard.id = 'tool-' + payload.tool;
+              toolCard.innerHTML = `
+                <div class="tool-header">
+                  <span>🛠️ 调用工具：${payload.tool}</span>
+                  <span style="font-size:11px; color:var(--yellow);">⏳ 执行中...</span>
+                </div>
+              `;
+              bubbleEl.parentNode.insertBefore(toolCard, bubbleEl);
+            } else if (eventType === 'TOOL_CALL_END') {
+              const toolCard = document.getElementById('tool-' + payload.tool);
+              if (toolCard) {
+                toolCard.innerHTML = `
+                  <div class="tool-header">
+                    <span>🛠️ 工具已执行：${payload.tool}</span>
+                    <span style="font-size:11px; color:var(--green);">✅ 成功</span>
+                  </div>
+                  <div class="tool-result">回执: ${payload.result || '已完成'}</div>
+                `;
+              }
+            } else if (eventType === 'TEXT_MESSAGE_CHUNK') {
+              fullText += payload.delta || '';
+              // 简单格式化 markdown 换行与加粗
+              bubbleEl.innerHTML = formatMarkdown(fullText) + '<span class="typing-cursor"></span>';
+              chatMessages.scrollTop = chatMessages.scrollHeight;
+            } else if (eventType === 'RUN_FINISHED') {
+              console.log('[AG-UI Chat] Agent Run Finished');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Chat error:', err);
+        fullText += `\n\n⚠️ 通信错误: ${err.message}`;
+        bubbleEl.innerHTML = formatMarkdown(fullText);
+      } finally {
+        isGenerating = false;
+        btnSend.disabled = false;
+        // 移除光标
+        const cursor = bubbleEl.querySelector('.typing-cursor');
+        if (cursor) cursor.remove();
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    }
+
+    function appendMessage(role, text, sender) {
+      const row = document.createElement('div');
+      row.className = `msg-row msg-${role}`;
+      row.innerHTML = `
+        <div class="msg-sender">${sender}</div>
+        <div class="msg-bubble">${formatMarkdown(text)}</div>
+      `;
+      chatMessages.appendChild(row);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function formatMarkdown(str) {
+      return str
+        .replace(/\n/g, '<br>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>');
+    }
+
+    // =========================================================================
+    // 90% 额度安全熔断与人机协同审批 (Human-in-the-Loop)
+    // =========================================================================
+    let currentCircuitAction = 'switch_backup';
+
+    function openCircuitModal(cbData) {
+      const modal = document.getElementById('circuitModal');
+      document.getElementById('cbAgent').innerText = cbData.agent || 'Google Antigravity';
+      document.getElementById('cbUsage').innerText = (cbData.current_usage || 90.0) + '%';
+      if (cbData.message) document.getElementById('cbMsg').innerText = cbData.message;
+      modal.style.display = 'flex';
+    }
+
+    function closeCircuitModal() {
+      document.getElementById('circuitModal').style.display = 'none';
+    }
+
+    function selectCircuitAction(actionId) {
+      currentCircuitAction = actionId;
+      document.querySelectorAll('.circuit-option').forEach(el => el.classList.remove('active'));
+      const activeEl = document.getElementById('opt-' + actionId);
+      if (activeEl) activeEl.classList.add('active');
+    }
+
+    async function submitCircuitDecision() {
+      const btn = document.getElementById('btnSubmitCircuit');
+      btn.innerText = '⏳ 提交决策中...';
+      btn.disabled = true;
+
+      try {
+        const resp = await fetch('/api/circuit_breaker/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: currentCircuitAction })
+        });
+        const res = await resp.json();
+        closeCircuitModal();
+        showToast(`已执行人机决策：${res.message}`, '🛡️');
+        fetchStatus();
+      } catch (err) {
+        alert('决策提交失败: ' + err);
+      } finally {
+        btn.innerText = '✅ 确认授权并恢复运行';
+        btn.disabled = false;
+      }
+    }
+
+    // 快捷触发 90% 熔断演练测试
+    async function triggerCircuitBreakerTest() {
+      try {
+        showToast('正在广播 90% 额度安全熔断演练事件...', '🚨');
+        const resp = await fetch('/api/circuit_breaker/test', { method: 'POST' });
+        const res = await resp.json();
+      } catch (err) {
+        alert('触发演练失败: ' + err);
+      }
+    }
+
+    // =========================================================================
+    // 基础业务交互
+    // =========================================================================
     async function triggerCheckin() {
       const btn = document.getElementById('btnCheckin');
       btn.innerText = '⏳ 打卡中...';
@@ -614,7 +1153,7 @@
           body: JSON.stringify({ force: true })
         });
         const res = await resp.json();
-        alert(res.message || '操作已执行');
+        showToast(res.message || '操作已执行', '🎁');
         fetchStatus();
       } catch (e) {
         alert('打卡请求失败: ' + e);
@@ -661,7 +1200,7 @@
         });
         const res = await resp.json();
         if (res.success) {
-          alert('配置已成功保存并即时生效！');
+          showToast('配置已成功保存并即时生效！');
           closeConfigModal();
           fetchStatus();
         } else {
@@ -673,66 +1212,48 @@
     }
 
     // =========================================================================
-    // AG-UI Protocol 1.0 Real-time EventStream Engine (客户端长连接驱动)
+    // AG-UI Protocol 1.0 Real-time EventStream 引擎
     // =========================================================================
     let eventSource = null;
-    let fallbackInterval = null;
 
     function initAGUIStream() {
       const statusPill = document.getElementById('aguiStatus');
 
       if (!window.EventSource) {
-        console.warn('浏览器不支持 EventSource，自动降级为定时轮询');
-        if (statusPill) {
-          statusPill.innerHTML = '<span class="dot"></span> 兼容轮询模式';
-          statusPill.style.color = 'var(--yellow)';
-          statusPill.style.borderColor = 'rgba(210, 153, 34, 0.3)';
-        }
-        fetchStatus();
-        fallbackInterval = setInterval(fetchStatus, 5000);
+        console.warn('浏览器不支持 EventSource，降级为轮询');
+        setInterval(fetchStatus, 5000);
         return;
       }
 
-      if (eventSource) {
-        eventSource.close();
-      }
-
+      if (eventSource) eventSource.close();
       eventSource = new EventSource('/api/events');
 
       eventSource.onopen = () => {
-        console.log('[AG-UI] 智能体实时事件流通道已连接');
+        console.log('[AG-UI] 智能体实时事件流通道已就绪');
         if (statusPill) {
           statusPill.innerHTML = '<span class="dot dot-pulse"></span> AG-UI 实时流已连接';
           statusPill.style.color = 'var(--green)';
           statusPill.style.borderColor = 'rgba(63, 185, 80, 0.3)';
         }
-        if (fallbackInterval) {
-          clearInterval(fallbackInterval);
-          fallbackInterval = null;
-        }
       };
 
-      // 1. 监听状态初始全量快照 (STATE_SNAPSHOT)
+      // 1. 全量状态快照 (STATE_SNAPSHOT)
       eventSource.addEventListener('STATE_SNAPSHOT', (e) => {
         try {
           const data = JSON.parse(e.data);
           renderDashboard(data);
-        } catch (err) {
-          console.error('[AG-UI] 解析初始快照失败:', err);
-        }
+        } catch (err) {}
       });
 
-      // 2. 监听智能体状态增量/用量变化 (STATE_DELTA)
+      // 2. 增量状态更新 (STATE_DELTA)
       eventSource.addEventListener('STATE_DELTA', (e) => {
         try {
           const data = JSON.parse(e.data);
           renderDashboard(data);
-        } catch (err) {
-          console.error('[AG-UI] 解析增量补丁失败:', err);
-        }
+        } catch (err) {}
       });
 
-      // 3. 监听毫秒级时钟走秒 (AGENT_TICK)
+      // 3. 毫秒级时钟走秒 (AGENT_TICK)
       eventSource.addEventListener('AGENT_TICK', (e) => {
         try {
           const tick = JSON.parse(e.data);
@@ -742,21 +1263,45 @@
         } catch (err) {}
       });
 
-      // 异常自动重连与优雅降级
-      eventSource.onerror = (err) => {
-        console.warn('[AG-UI] 事件通道发生波动，正在尝试自动重连...', err);
+      // 4. 90% 额度安全熔断拦截 (HUMAN_INTERACTION_REQUIRED)
+      eventSource.addEventListener('HUMAN_INTERACTION_REQUIRED', (e) => {
+        try {
+          const cb = JSON.parse(e.data);
+          console.warn('[AG-UI] 接收到安全熔断广播:', cb);
+          openCircuitModal(cb);
+        } catch (err) {}
+      });
+
+      // 5. 熔断解决回执 (CIRCUIT_BREAKER_RESOLVED)
+      eventSource.addEventListener('CIRCUIT_BREAKER_RESOLVED', (e) => {
+        try {
+          const res = JSON.parse(e.data);
+          console.log('[AG-UI] 熔断已解除:', res);
+          closeCircuitModal();
+          showToast(`熔断保护已解除 (${res.action || '已决策'})`, '🛡️');
+        } catch (err) {}
+      });
+
+      eventSource.onerror = () => {
         if (statusPill) {
           statusPill.innerHTML = '<span class="dot"></span> AG-UI 重连中...';
           statusPill.style.color = 'var(--yellow)';
           statusPill.style.borderColor = 'rgba(210, 153, 34, 0.3)';
         }
-        // 拉取一次保证数据新鲜度
-        fetchStatus();
       };
     }
 
-    // 启动 AG-UI 实时流引擎
+    // 键盘 Esc 监听关闭抽屉与弹窗
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeChatDrawer();
+        closeConfigModal();
+      }
+    });
+
+    // 启动 AG-UI 引擎与初次拉取
     initAGUIStream();
+    fetchStatus();
   </script>
 </body>
 </html>
