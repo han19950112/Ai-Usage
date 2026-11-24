@@ -12,6 +12,7 @@ Fallback gracefully to local transcript parsing when direct bridge is offline.
 
 import base64
 import calendar
+from datetime import datetime, timezone
 import glob
 import json
 import os
@@ -21,6 +22,15 @@ import struct
 import subprocess
 import time
 import urllib.request
+
+def parse_iso_ts(iso_str):
+    if not iso_str: return 0
+    try:
+        clean = iso_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean)
+        return int(dt.timestamp())
+    except Exception:
+        return 0
 
 def fetch_official_antigravity_quota(port=58321):
     """Query Antigravity's internal React Fiber store via local CDP port."""
@@ -211,13 +221,23 @@ def get_antigravity_status():
     except Exception as e:
         status["details"]["ps_err"] = str(e)
 
-    # 2. 读取基础 Token 与活跃时间
+    # 2. 读取基础 Token 与活跃时间 (支持 5小时与周滑动窗口统计)
     brain_dir = os.path.expanduser("~/.gemini/antigravity/brain")
     total_input = 0
     total_output = 0
     total_cached = 0
+    tokens_5h = 0
+    tokens_wk = 0
+    gemini_5h = 0
+    gemini_wk = 0
+    claude_5h = 0
+    claude_wk = 0
+    oldest_5h_ts = None
     latest_step = None
     latest_mtime = 0
+    now_ts = int(time.time())
+    five_h_ts = now_ts - 5 * 3600
+    seven_d_ts = now_ts - 7 * 86400
 
     if os.path.exists(brain_dir):
         convs = [d for d in os.listdir(brain_dir) if os.path.isdir(os.path.join(brain_dir, d)) and not d.startswith(".")]
@@ -235,9 +255,31 @@ def get_antigravity_status():
                             obj = json.loads(line)
                             if "model" in obj:
                                 latest_step = obj
-                                total_input += obj.get("input_tokens", 0)
-                                total_output += obj.get("output_tokens", 0)
-                                total_cached += obj.get("cache_read_tokens", 0)
+                                inp = obj.get("input_tokens", 0)
+                                out = obj.get("output_tokens", 0)
+                                cache = obj.get("cache_read_tokens", 0)
+                                effective_tokens = inp + out
+                                total_input += inp
+                                total_output += out
+                                total_cached += cache
+
+                                step_ts = parse_iso_ts(obj.get("created_at"))
+                                if step_ts == 0: step_ts = int(mt)
+                                
+                                m_name = obj.get("model", "").lower()
+                                is_claude = "claude" in m_name
+
+                                if step_ts >= five_h_ts:
+                                    tokens_5h += effective_tokens
+                                    if is_claude: claude_5h += effective_tokens
+                                    else: gemini_5h += effective_tokens
+                                    if oldest_5h_ts is None or step_ts < oldest_5h_ts:
+                                        oldest_5h_ts = step_ts
+
+                                if step_ts >= seven_d_ts:
+                                    tokens_wk += effective_tokens
+                                    if is_claude: claude_wk += effective_tokens
+                                    else: gemini_wk += effective_tokens
                         except Exception: pass
             except Exception: pass
 
@@ -387,10 +429,79 @@ def get_antigravity_status():
         status["quota"]["dual_models"] = dual_models
 
     else:
-        # Fallback 到本地 transcript 滑动窗口统计
-        status["data_source"] = "本地日志估算"
-        status["quota"]["five_hour_usage"]["human_used"] = "367k / 1.5M (估算)"
-        status["quota"]["weekly_usage"]["human_used"] = "1.4M / 10M (估算)"
+        # Fallback 到本地 transcript 真实滑动窗口统计
+        status["data_source"] = "本地日志真实统计"
+        limit_5h = 1500000
+        limit_wk = 10000000
+        
+        pct_5h = round(min(100.0, (tokens_5h / limit_5h) * 100), 1)
+        rem_5h_pct = round(max(0.0, 100.0 - pct_5h), 1)
+        
+        pct_wk = round(min(100.0, (tokens_wk / limit_wk) * 100), 1)
+        rem_wk_pct = round(max(0.0, 100.0 - pct_wk), 1)
+
+        reset_5h_str = "随时可用"
+        reset_5h_expire = "随时可用"
+        if oldest_5h_ts and tokens_5h > 0:
+            sec_left_5h = max(0, int((oldest_5h_ts + 5 * 3600) - now_ts))
+            rh = sec_left_5h // 3600
+            rm = (sec_left_5h % 3600) // 60
+            reset_5h_str = f"{rh}小时{rm:02d}分后完全释放" if rh > 0 else f"{rm}分钟后释放"
+            reset_5h_expire = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(oldest_5h_ts + 5 * 3600))
+
+        status["quota"]["five_hour_usage"] = {
+            "used_tokens": tokens_5h,
+            "limit_tokens": limit_5h,
+            "remaining_percent": rem_5h_pct,
+            "percent": pct_5h,
+            "status": "critical" if pct_5h >= 90 else ("warning" if pct_5h >= 70 else "normal"),
+            "reset_countdown_human": reset_5h_str,
+            "reset_expire_time": reset_5h_expire,
+            "human_used": f"{tokens_5h / 1000:.1f}k / {limit_5h / 1000000:.1f}M ({pct_5h}%)"
+        }
+
+        utc_now = time.gmtime(now_ts)
+        days_to_monday = (7 - utc_now.tm_wday) % 7
+        if days_to_monday == 0 and (utc_now.tm_hour > 0 or utc_now.tm_min > 0): days_to_monday = 7
+        sec_left_wk = max(0, int(now_ts + (days_to_monday * 86400) - now_ts))
+        left_days = sec_left_wk // 86400
+        weekly_reset_str = f"{left_days}天后周重置"
+
+        status["quota"]["weekly_usage"] = {
+            "used_tokens": tokens_wk,
+            "limit_tokens": limit_wk,
+            "percent": pct_wk,
+            "status": "normal",
+            "reset_countdown_human": weekly_reset_str,
+            "human_used": f"{tokens_wk / 1000000:.2f}M / {limit_wk / 1000000:.0f}M ({pct_wk}%)"
+        }
+
+        status["quota"]["dual_models"] = [
+            {
+                "id": "model_gemini",
+                "name": "⚡ Gemini 3.8 Flash (主力套)",
+                "type": "官方推荐 · 日常主力编程",
+                "five_hour_used": f"{gemini_5h / 1000:.1f}k",
+                "weekly_used": f"{gemini_wk / 1000000:.2f}M",
+                "limit_label": "主力模型池",
+                "percent_5h": round(min(100.0, (gemini_5h / limit_5h) * 100), 1),
+                "percent_week": round(min(100.0, (gemini_wk / limit_wk) * 100), 1),
+                "status": "就绪",
+                "level": "normal"
+            },
+            {
+                "id": "model_claude",
+                "name": "🧠 Claude Sonnet 4.6 (高阶套)",
+                "type": "高阶深度推理 · 独立配额",
+                "five_hour_used": f"{claude_5h / 1000:.1f}k",
+                "weekly_used": f"{claude_wk / 1000000:.2f}M",
+                "limit_label": "独立第三方高阶池",
+                "percent_5h": round(min(100.0, (claude_5h / (limit_5h / 2)) * 100), 1),
+                "percent_week": round(min(100.0, (claude_wk / (limit_wk / 2)) * 100), 1),
+                "status": "就绪",
+                "level": "normal"
+            }
+        ]
 
     return status
 

@@ -269,7 +269,7 @@
           <span class="dot dot-pulse"></span> AG-UI 实时流已连接
         </span>
         <button class="btn btn-chat" id="btnToggleDrawer" onclick="toggleChatDrawer()">
-          <span>💬</span> 智能体指令台
+          <span>💬</span> 智能体指令台 <kbd style="background:rgba(255,255,255,0.15); padding:1px 5px; border-radius:4px; font-size:10px; font-family:ui-monospace, monospace; margin-left:2px;">⌘K</kbd>
         </button>
         <span class="server-time" id="serverTime">检测中...</span>
         <button class="btn" onclick="fetchStatus(true)">🔄 刷新</button>
@@ -549,8 +549,10 @@
 
     <!-- 快捷药丸 -->
     <div class="quick-prompts">
-      <span class="chip" onclick="sendQuickPrompt('🎁 立即执行 WorkBuddy 签到打卡并核算积分')">🎁 立即打卡领积分</span>
-      <span class="chip" onclick="sendQuickPrompt('📊 查询 Antigravity 官方当前配额与重置时间')">📊 查询官方权威配额</span>
+      <span class="chip" onclick="sendQuickPrompt('📋 生成今日四大智能体用量综合体检报告')">📋 今日综合日报</span>
+      <span class="chip" onclick="sendQuickPrompt('🎁 立即执行 WorkBuddy 签到打卡并核算积分')">🎁 自动打卡领积分</span>
+      <span class="chip" onclick="sendQuickPrompt('📊 查询 Antigravity 官方当前配额与重置时间')">📊 官方配额核验</span>
+      <span class="chip" onclick="sendQuickPrompt('🧠 查询 Codex 剩余操作数与重置时间')">🧠 Codex 操作数</span>
       <span class="chip" onclick="sendQuickPrompt('🚨 演练 90% 额度超额熔断保护')">🚨 演练90%熔断</span>
     </div>
 
@@ -936,6 +938,42 @@
           <div class="msg-bubble">对话记录已重置。您可以随时向 Agent 发出新指令！</div>
         </div>
       `;
+      try { localStorage.removeItem('cockpit_chat_html'); } catch (e) {}
+    }
+
+    function saveChatHistory() {
+      try {
+        localStorage.setItem('cockpit_chat_html', chatMessages.innerHTML);
+      } catch (e) {}
+    }
+
+    function restoreChatHistory() {
+      try {
+        const saved = localStorage.getItem('cockpit_chat_html');
+        if (saved && saved.trim()) {
+          chatMessages.innerHTML = saved;
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+      } catch (e) {}
+    }
+
+    function playAlertBeep() {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      } catch (e) {}
     }
 
     function handleChatInputKey(e) {
@@ -1060,6 +1098,7 @@
         const cursor = bubbleEl.querySelector('.typing-cursor');
         if (cursor) cursor.remove();
         chatMessages.scrollTop = chatMessages.scrollHeight;
+        saveChatHistory();
       }
     }
 
@@ -1268,6 +1307,7 @@
         try {
           const cb = JSON.parse(e.data);
           console.warn('[AG-UI] 接收到安全熔断广播:', cb);
+          playAlertBeep();
           openCircuitModal(cb);
         } catch (err) {}
       });
@@ -1291,15 +1331,21 @@
       };
     }
 
-    // 键盘 Esc 监听关闭抽屉与弹窗
+    // 全局快捷键：Cmd+K / Ctrl+K 切换指令抽屉，Esc 关闭
     document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        toggleChatDrawer();
+        return;
+      }
       if (e.key === 'Escape') {
         closeChatDrawer();
         closeConfigModal();
       }
     });
 
-    // 启动 AG-UI 引擎与初次拉取
+    // 启动 AG-UI 引擎、恢复对话历史与初次拉取
+    restoreChatHistory();
     initAGUIStream();
     fetchStatus();
   </script>

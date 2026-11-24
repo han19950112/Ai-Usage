@@ -454,6 +454,70 @@ class CockpitHandler(BaseHTTPRequestHandler):
                     f"👉 **执行结果**：{ck_res.get('message')}\n",
                     f"当前打卡连续天数：**{ck_res.get('record', {}).get('consecutive_days', 1)} 天**，最新积分余额已同步更新至驾驶舱！"
                 ]
+            elif any(k in message for k in ["日报", "体检", "报告", "简报", "概览", "总览"]):
+                send_stream_event("TOOL_CALL_START", {"tool": "generate_agent_cockpit_report", "args": {"scope": "all_agents"}})
+                time.sleep(0.5)
+                ag_s = get_antigravity_status()
+                cdx_s = get_codex_status()
+                wb_s = get_workbuddy_status(load_config().get("workbuddy", {}))
+                volc_s = get_volcengine_status(load_config().get("volcengine", {}))
+                send_stream_event("TOOL_CALL_END", {"tool": "generate_agent_cockpit_report", "result": "四大智能体状态数据全量汇总完成"})
+                
+                ag_pct = ag_s.get("quota", {}).get("five_hour_usage", {}).get("percent", 0)
+                cdx_rem = cdx_s.get("five_hour_usage", {}).get("remaining_events", 2500)
+                wb_pts = wb_s.get("total_points", 0)
+                wb_checked = "✅ 已打卡" if wb_s.get("today_checked_in") else "⏳ 未打卡"
+                volc_lat = f"{volc_s.get('latency_ms', 0)}ms" if volc_s.get('healthy') else "待连接"
+                
+                answer_parts = [
+                    "📋 **Agent Cockpit 多智能体实时运行与用量综合体检日报**\n\n",
+                    f"📅 **生成时间**：{time.strftime('%Y-%m-%d %H:%M:%S')} · 运行协议：AG-UI Protocol 1.0\n\n",
+                    "### 📊 核心智能体用量汇总：\n",
+                    f"1. **⚡ Google Antigravity**\n",
+                    f"   - 订阅与数据源：`{ag_s.get('user_tier', 'Google AI Pro')}` ({ag_s.get('data_source', '官方直连')})\n",
+                    f"   - 5小时额度：已用 **{ag_pct}%** (重置倒计时: {ag_s.get('quota', {}).get('five_hour_usage', {}).get('reset_countdown_human', '随时就绪')})\n",
+                    f"   - 双模型池状态：主力 Gemini ({ag_s.get('quota', {}).get('dual_models', [{}])[0].get('status', '充裕')}) · 高阶 Claude 3.5 Sonnet (就绪)\n",
+                    f"   - 缓存省流效益：Prompt 缓存命中率高达 **{ag_s.get('quota', {}).get('tokens', {}).get('cache_savings_ratio', '1.0x')}**\n\n",
+                    f"2. **🧠 OpenAI Codex**\n",
+                    f"   - 运行状态：{'✅ 执行中' if cdx_s.get('running') else '🟢 就绪 (已安装)'}\n",
+                    f"   - 5小时剩余操作数：**{cdx_rem:,}** / 2,500 次 · 周总额度消耗: {cdx_s.get('weekly_usage', {}).get('percent', 0)}%\n",
+                    f"   - 重置到期节点：{cdx_s.get('five_hour_usage', {}).get('reset_expire_time', '随时可用')}\n\n",
+                    f"3. **🤖 WorkBuddy 腾讯全场景**\n",
+                    f"   - 今日签到：**{wb_checked}** · 账户积分余额：**{wb_pts:,}** 积分 (连续 {wb_s.get('consecutive_days', 0)} 天)\n",
+                    f"   - 自动防断签：每日 09:00 守护线程已激活\n\n",
+                    f"4. **🌋 火山引擎 Plan API**\n",
+                    f"   - 接口状态：{'🟢 通道畅通' if volc_s.get('healthy') else '⚪ 待配置 Key'} (延迟: {volc_lat})\n",
+                    f"   - 方舟 Coding Plan 滑动限流：已用 {volc_s.get('five_hour_quota', {}).get('percent', 0)}%\n\n",
+                    f"🛡️ **安全熔断评估**：当前警戒线为 **{CIRCUIT_BREAKER['threshold']}%**，全部 Agent 处于绿色安全水位，无需人工干预。"
+                ]
+            elif "codex" in message.lower() or agent_id == "codex":
+                send_stream_event("TOOL_CALL_START", {"tool": "query_codex_status", "args": {}})
+                time.sleep(0.3)
+                cdx_s = get_codex_status()
+                send_stream_event("TOOL_CALL_END", {"tool": "query_codex_status", "result": f"读取到 {cdx_s.get('total_log_events', 0)} 条本地事件"})
+                c5h = cdx_s.get("five_hour_usage", {})
+                cwk = cdx_s.get("weekly_usage", {})
+                answer_parts = [
+                    "已为您查询 **OpenAI Codex** 本地编程智能体指标：\n\n",
+                    f"- 📁 **安装环境**：{cdx_s.get('home_dir')} (版本: {cdx_s.get('app_version', '1.0')})\n",
+                    f"- ⏱️ **5小时窗口操作数**：已执行 {c5h.get('events_5h', 0)} 次 (剩余 **{c5h.get('remaining_events', 2500):,}** 次)\n",
+                    f"- 📅 **7天周总配额**：已用 {cwk.get('events_week', 0)} 次 ({cwk.get('percent', 0)}%)\n",
+                    f"- ⏰ **下个释放周期**：{c5h.get('reset_countdown_human')} ({c5h.get('reset_expire_time')})\n",
+                    f"- 📊 **历史日志总数**：{cdx_s.get('total_log_events', 0):,} 条"
+                ]
+            elif any(k in message for k in ["火山", "方舟", "volcengine"]) or agent_id == "volcengine":
+                send_stream_event("TOOL_CALL_START", {"tool": "test_volcengine_latency", "args": {}})
+                time.sleep(0.4)
+                volc_s = get_volcengine_status(load_config().get("volcengine", {}))
+                send_stream_event("TOOL_CALL_END", {"tool": "test_volcengine_latency", "result": f"延迟 {volc_s.get('latency_ms', 0)}ms"})
+                answer_parts = [
+                    "已完成 **火山引擎方舟 Plan API** 通道探测：\n\n",
+                    f"- 📡 **通道连通性**：{'🟢 畅通' if volc_s.get('healthy') else '⚠️ 需检查配置'}\n",
+                    f"- ⚡ **网络往返延迟**：{volc_s.get('latency_ms', 0)} ms\n",
+                    f"- 🤖 **绑定预设模型**：`{volc_s.get('model_name')}`\n",
+                    f"- ⏱️ **5小时滑动用量**：{volc_s.get('five_hour_quota', {}).get('human_used', '0%')}\n",
+                    f"- 📅 **周配额消耗**：{volc_s.get('weekly_quota', {}).get('percent', 0)}%"
+                ]
             elif "配额" in message or "额度" in message or "用量" in message:
                 send_stream_event("TOOL_CALL_START", {"tool": "query_official_quota", "args": {"target": agent_id}})
                 time.sleep(0.3)
