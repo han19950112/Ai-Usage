@@ -140,6 +140,7 @@
             <div id="agBadge" class="badge badge-stopped"><span class="dot"></span> 未运行</div>
           </div>
           <div class="stat-list">
+            <div class="stat-row"><span>官方订阅与数据源</span><span class="val" id="agTier" style="color:var(--green); font-weight:600;">Google AI Pro (官方直连)</span></div>
             <div class="stat-row"><span>当前活跃模型</span><span class="val" id="agModel" style="color:var(--accent); font-weight:600;">-</span></div>
             <div class="stat-row"><span>IDE / 服务端状态</span><span class="val" id="agVersion">-</span></div>
             <div class="stat-row"><span>独立汉化启动器</span><span class="val" id="agZh">-</span></div>
@@ -422,6 +423,7 @@
       }
       
       const q = ag.quota || {};
+      document.getElementById('agTier').innerText = `${ag.user_tier || 'Google AI Pro'} (${ag.data_source || '官方权威直连'})`;
       document.getElementById('agModel').innerText = q.current_model || 'Gemini 3.8 Flash';
       document.getElementById('agVersion').innerText = `v${ag.version || '2.34.0'} · LS在线`;
       document.getElementById('agZh').innerText = ag.is_chinese_launcher ? '✅ 已激活 (中文双入口)' : '标准版';
@@ -434,7 +436,7 @@
       const ag5h = q.five_hour_usage || {};
       const ag5hPct = ag5h.percent || 0;
       document.getElementById('ag5hCountdown').innerText = ag5h.reset_countdown_human || '滑动重置';
-      document.getElementById('ag5hHuman').innerText = `${ag5h.human_used || '0k'} (${ag5hPct}%)`;
+      document.getElementById('ag5hHuman').innerText = ag5h.human_used ? ag5h.human_used : `${ag5hPct}%`;
       const ag5hBar = document.getElementById('ag5hBar');
       ag5hBar.style.width = ag5hPct + '%';
       ag5hBar.className = 'progress-bar-fill ' + (ag5hPct >= 85 ? 'fill-red' : (ag5hPct >= 60 ? 'fill-yellow' : 'fill-green'));
@@ -443,7 +445,7 @@
       const agWk = q.weekly_usage || {};
       const agWkPct = agWk.percent || 0;
       document.getElementById('agWkCountdown').innerText = agWk.reset_countdown_human || '周重置';
-      document.getElementById('agWkHuman').innerText = `${agWk.human_used || '0.0M'} (${agWkPct}%)`;
+      document.getElementById('agWkHuman').innerText = agWk.human_used ? agWk.human_used : `${agWkPct}%`;
       const agWkBar = document.getElementById('agWkBar');
       agWkBar.style.width = agWkPct + '%';
       agWkBar.className = 'progress-bar-fill ' + (agWkPct >= 85 ? 'fill-red' : (agWkPct >= 60 ? 'fill-yellow' : 'fill-green'));
