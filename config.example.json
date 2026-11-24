@@ -16,7 +16,7 @@
   "workbuddy": {
     "enabled": true,
     "demo_mode": false,
-    "checkin_url": "https://workbuddy.qq.com/api/v1/growth/checkin",
+    "checkin_url": "https://www.workbuddy.cn/billing/meter/checkin",
     "token": "",
     "cookie": "",
     "auto_checkin_enabled": true,

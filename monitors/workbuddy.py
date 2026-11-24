@@ -8,10 +8,15 @@ Handles WorkBuddy status detection, automated daily check-in (Buddy 加油站), 
 import json
 import os
 import subprocess
+import threading
 import time
 import ssl
 import urllib.request
 import urllib.error
+
+# Live API cache (60s TTL) to avoid hammering www.workbuddy.cn every 2s
+_WB_LIVE_CACHE = {"key": None, "ts": 0.0, "data": None}
+_WB_CACHE_LOCK = threading.Lock()
 
 def _get_ssl_context(config):
     ctx = ssl.create_default_context()
@@ -19,6 +24,89 @@ def _get_ssl_context(config):
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     return ctx
+
+def _wb_headers(config):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://www.workbuddy.cn",
+        "Referer": "https://www.workbuddy.cn/app",
+    }
+    token = str(config.get("token", "") or "").strip()
+    cookie = str(config.get("cookie", "") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if cookie:
+        headers["Cookie"] = cookie
+    return headers
+
+def _fetch_workbuddy_live_data(config):
+    """Fetch real credits, check-in status, and growth streak from www.workbuddy.cn."""
+    token = str(config.get("token", "") or "").strip()
+    cookie = str(config.get("cookie", "") or "").strip()
+    if (not token and not cookie) or config.get("demo_mode", False) or token == "demo" or cookie == "demo":
+        return None
+
+    cache_key = (token[:16], cookie[:32])
+    now_ts = time.time()
+    with _WB_CACHE_LOCK:
+        if _WB_LIVE_CACHE["key"] == cache_key and (now_ts - _WB_LIVE_CACHE["ts"]) < 60.0:
+            return _WB_LIVE_CACHE["data"]
+
+    headers = _wb_headers(config)
+    ssl_ctx = _get_ssl_context(config)
+    result = {}
+
+    def _req(url, method="POST", body=b"{}"):
+        req = urllib.request.Request(url, data=(body if method == "POST" else None), headers=headers, method=method)
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=8) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+    # 1. Total credits & credit groups
+    try:
+        r = _req("https://www.workbuddy.cn/billing/meter/get-user-resource-summary", "POST", b"{}")
+        d = r.get("data") or {}
+        if isinstance(d, dict) and d.get("TotalCredits") is not None:
+            result["total_points"] = round(float(d.get("TotalCredits") or 0), 2)
+            result["plan_name"] = d.get("SubscriptionPackageName") or "体验版"
+            groups = d.get("CreditGroups") or []
+            total_cap = sum(float(g.get("CycleTotalCapacity") or 0) for g in groups)
+            used_cap = sum(float(g.get("CycleUsedCapacity") or 0) for g in groups)
+            if total_cap > 0:
+                result["used_credits"] = round(used_cap, 2)
+                result["total_credits_cap"] = round(total_cap, 2)
+                result["used_percent"] = round(min(100.0, (used_cap / total_cap) * 100.0), 1)
+    except Exception as e:
+        result["summary_err"] = str(e)
+
+    # 2. Checkin status (Buddy 加油站)
+    try:
+        r = _req("https://www.workbuddy.cn/billing/meter/checkin-status", "POST", b"{}")
+        d = r.get("data") or {}
+        if isinstance(d, dict):
+            result["checkin_active"] = bool(d.get("active", False))
+            result["today_checked_in"] = bool(d.get("today_checked_in", False))
+            result["checkin_streak_days"] = int(d.get("streak_days") or 0)
+    except Exception:
+        pass
+
+    # 3. Growth center streak (活跃连登天数)
+    try:
+        r = _req("https://www.workbuddy.cn/activity/growth/streak", "GET")
+        d = r.get("data") or {}
+        streak = d.get("streak") or {}
+        if isinstance(streak, dict):
+            result["growth_streak_days"] = int(streak.get("days") or 0)
+            result["month_total_days"] = int(streak.get("month_total_days") or 0)
+    except Exception:
+        pass
+
+    with _WB_CACHE_LOCK:
+        _WB_LIVE_CACHE["key"] = cache_key
+        _WB_LIVE_CACHE["ts"] = now_ts
+        _WB_LIVE_CACHE["data"] = result if result else None
+    return result if result else None
 
 _LOCAL_HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "checkin_history.json")
 _USER_HISTORY = os.path.expanduser("~/.agent-cockpit/checkin_history.json")
@@ -67,7 +155,9 @@ def run_workbuddy_checkin(config=None, force=False):
 
     token = config.get("token", "").strip()
     cookie = config.get("cookie", "").strip()
-    api_url = config.get("checkin_url", "https://workbuddy.qq.com/api/v1/growth/checkin").strip()
+    api_url = config.get("checkin_url", "https://www.workbuddy.cn/billing/meter/checkin").strip()
+    if "workbuddy.qq.com" in api_url:
+        api_url = "https://www.workbuddy.cn/billing/meter/checkin"
     demo_mode = config.get("demo_mode", False)
 
     if not token and not cookie and not demo_mode:
@@ -245,6 +335,28 @@ def get_workbuddy_status(config=None):
         if r.get("date") == today_str and r.get("success"):
             status["today_checked_in"] = True
             break
+
+    # 4. Merge live www.workbuddy.cn data when authenticated
+    live = _fetch_workbuddy_live_data(config)
+    if live:
+        if "total_points" in live:
+            status["total_points"] = live["total_points"]
+        if live.get("checkin_streak_days", 0) > 0:
+            status["consecutive_days"] = live["checkin_streak_days"]
+        elif live.get("growth_streak_days", 0) > 0:
+            status["consecutive_days"] = live["growth_streak_days"]
+        if live.get("today_checked_in"):
+            status["today_checked_in"] = True
+        if "total_credits_cap" in live:
+            pct = live.get("used_percent", 0.0)
+            status["five_hour_usage"] = {
+                "used_requests": live.get("used_credits", 0),
+                "limit_requests": live.get("total_credits_cap", 0),
+                "percent": pct,
+                "status": "critical" if pct >= 90 else ("warning" if pct >= 70 else "normal"),
+                "reset_countdown_human": f"{live.get('plan_name', '体验版')} · 月累计活跃 {live.get('month_total_days', 0)} 天",
+                "human_used": f"已用 {live.get('used_credits', 0)} / {live.get('total_credits_cap', 0)} 积分"
+            }
 
     return status
 
