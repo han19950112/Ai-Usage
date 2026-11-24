@@ -176,7 +176,8 @@ def _status_fingerprint(ag, cdx, wb, volc, cb):
         ag.get("quota", {}).get("context_window", {}).get("used_tokens"),
         cdx.get("running"),
         cdx.get("total_log_events"),
-        cdx.get("five_hour_usage", {}).get("events_5h"),
+        cdx.get("five_hour_usage", {}).get("percent"),
+        cdx.get("weekly_usage", {}).get("percent"),
         wb.get("running"),
         wb.get("today_checked_in"),
         wb.get("total_points"),
@@ -577,15 +578,16 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         f"   - 双模型池状态：主力 Gemini ({gemini_status}) · 高阶 Claude ({claude_status})\n",
                         f"   - 缓存省流效益：Prompt 缓存命中率高达 **{ag_s.get('quota', {}).get('tokens', {}).get('cache_savings_ratio', '1.0x')}**\n\n",
                         f"2. **🧠 OpenAI Codex**\n",
-                        f"   - 运行状态：{'✅ 执行中' if cdx_s.get('running') else '🟢 就绪 (已安装)'}\n",
-                        f"   - 5小时剩余操作数：**{cdx_rem:,}** / 2,500 次 · 周总额度消耗: {cdx_s.get('weekly_usage', {}).get('percent', 0)}%\n",
+                        f"   - 运行状态：{'✅ 执行中' if cdx_s.get('running') else '🟢 就绪 (已安装)'} · 订阅：{cdx_s.get('plan_type', '未知')} ({cdx_s.get('data_source', '')})\n",
+                        f"   - 5小时额度：{cdx_s.get('five_hour_usage', {}).get('human_used', '0%')} · 7天周额度：{cdx_s.get('weekly_usage', {}).get('human_used', '0%')}\n",
                         f"   - 重置到期节点：{cdx_s.get('five_hour_usage', {}).get('reset_expire_time', '随时可用')}\n\n",
                         f"3. **🤖 WorkBuddy 腾讯全场景**\n",
                         f"   - 今日签到：**{wb_checked}** · 账户积分余额：**{wb_pts:,}** 积分 (连续 {wb_s.get('consecutive_days', 0)} 天)\n",
                         f"   - 自动防断签：每日 {wb_s.get('checkin_time', '09:00')} 守护线程已激活\n\n",
                         f"4. **🌋 火山引擎 Plan API**\n",
                         f"   - 接口状态：{'🟢 通道畅通' if volc_s.get('healthy') else '⚪ 待配置 Key'} (延迟: {volc_lat})\n",
-                        f"   - 方舟 Coding Plan 滑动限流：已用 {volc_s.get('five_hour_quota', {}).get('percent', 0)}%\n\n",
+                        f"   - 套餐到期：{volc_s.get('plan_expire_human', '未设置')}\n",
+                        f"   - 5小时/7天/月度配额：{volc_s.get('five_hour_quota', {}).get('percent', 0)}% · {volc_s.get('weekly_quota', {}).get('percent', 0)}% · {volc_s.get('monthly_quota', {}).get('percent', 0)}%\n\n",
                         f"🛡️ **安全熔断评估**：{cb_summary}"
                     ]
                 elif "codex" in message.lower() or agent_id == "codex":
@@ -597,11 +599,10 @@ class CockpitHandler(BaseHTTPRequestHandler):
                     cwk = cdx_s.get("weekly_usage", {})
                     answer_parts = [
                         "已为您查询 **OpenAI Codex** 本地编程智能体指标：\n\n",
-                        f"- 📁 **安装环境**：{cdx_s.get('home_dir')} (版本: {cdx_s.get('app_version', '1.0')})\n",
-                        f"- ⏱️ **5小时窗口操作数**：已执行 {c5h.get('events_5h', 0)} 次 (剩余 **{c5h.get('remaining_events', 2500):,}** 次)\n",
-                        f"- 📅 **7天周总配额**：已用 {cwk.get('events_week', 0)} 次 ({cwk.get('percent', 0)}%)\n",
-                        f"- ⏰ **下个释放周期**：{c5h.get('reset_countdown_human')} ({c5h.get('reset_expire_time')})\n",
-                        f"- 📊 **历史日志总数**：{cdx_s.get('total_log_events', 0):,} 条"
+                        f"- 📁 **安装环境**：{cdx_s.get('home_dir')} (版本: {cdx_s.get('app_version', '1.0')} · 订阅: {cdx_s.get('plan_type', '未知')})\n",
+                        f"- ⏱️ **5小时窗口配额**：{c5h.get('human_used', '0%')} (重置: {c5h.get('reset_countdown_human')} · {c5h.get('reset_expire_time')})\n",
+                        f"- 📅 **7天周总配额**：{cwk.get('human_used', '0%')} (重置: {cwk.get('reset_countdown_human')} · {cwk.get('reset_expire_time')})\n",
+                        f"- 📊 **本地日志总数**：{cdx_s.get('total_log_events', 0):,} 条 ({cdx_s.get('data_source', '')})"
                     ]
                 elif any(k in message.lower() for k in ["火山", "方舟", "volcengine"]) or agent_id == "volcengine":
                     send_stream_event("TOOL_CALL_START", {"tool": "test_volcengine_latency", "args": {}})
@@ -614,8 +615,10 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         f"- 📡 **通道连通性**：{'🟢 畅通' if volc_s.get('healthy') else '⚠️ 需检查配置'} ({volc_s.get('message', '')})\n",
                         f"- ⚡ **网络往返延迟**：{volc_s.get('latency_ms') if volc_s.get('latency_ms') is not None else '-'} ms\n",
                         f"- 🤖 **绑定预设模型**：`{volc_s.get('model_name')}`\n",
-                        f"- ⏱️ **5小时滑动用量**：{volc_s.get('five_hour_quota', {}).get('human_used', '0%')}\n",
-                        f"- 📅 **周配额消耗**：{volc_s.get('weekly_quota', {}).get('percent', 0)}%"
+                        f"- 📆 **套餐订阅到期**：{volc_s.get('plan_expire_human', '未设置')}\n",
+                        f"- ⏱️ **5小时滑动用量**：{volc_s.get('five_hour_quota', {}).get('human_used', '0%')} (到期: {volc_s.get('five_hour_quota', {}).get('reset_expire_time', '-')})\n",
+                        f"- 📅 **7天周配额**：{volc_s.get('weekly_quota', {}).get('human_used', '0%')} ({volc_s.get('weekly_quota', {}).get('percent', 0)}%，重置: {volc_s.get('weekly_quota', {}).get('reset_expire_time', '-')})\n",
+                        f"- 🗓️ **月度总额度**：{volc_s.get('monthly_quota', {}).get('human_used', '0%')} ({volc_s.get('monthly_quota', {}).get('percent', 0)}%，重置: {volc_s.get('monthly_quota', {}).get('reset_expire_time', '-')})"
                     ]
                 elif "配额" in message or "额度" in message or "用量" in message:
                     send_stream_event("TOOL_CALL_START", {"tool": "query_official_quota", "args": {"target": agent_id}})

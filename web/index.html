@@ -483,8 +483,8 @@
           <div class="stat-list">
             <div class="stat-row"><span>模型预设</span><span class="val" id="volcModel">doubao-seed-evolving</span></div>
             <div class="stat-row"><span>接口连通延迟</span><span class="val" id="volcLatency">-</span></div>
-            <div class="stat-row"><span>周配额消耗</span><span class="val" id="volcWeek">-</span></div>
-            <div class="stat-row"><span>状态提示</span><span class="val" id="volcMsg" style="font-size:12px;">-</span></div>
+            <div class="stat-row"><span>套餐订阅到期</span><span class="val" id="volcPlanExpire" style="color:var(--accent);">未设置</span></div>
+            <div class="stat-row"><span>状态提示</span><span class="val" id="volcMsg" style="font-size:12px; text-align:right; max-width:65%;">-</span></div>
           </div>
 
           <!-- 5h Volcengine Window -->
@@ -498,9 +498,41 @@
             </div>
           </div>
 
-          <div style="margin-top: 16px; padding: 10px; background: rgba(13, 17, 23, 0.4); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-            <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
-              💡 <strong>提示</strong>：支持实时监测方舟 Coding Plan 5小时滑动限流。可在右上角「⚙️ 设置凭据」随时接入 API Key。
+          <!-- 7d Weekly Volcengine Window -->
+          <div class="progress-box">
+            <div class="progress-header">
+              <span>📅 7天周额度窗口 (<span id="volcWkReset" style="color:var(--purple);">-</span>)</span>
+              <span id="volcWkHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-green" id="volcWkBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Monthly Volcengine Window -->
+          <div class="progress-box">
+            <div class="progress-header">
+              <span>🗓️ 月度总额度窗口 (<span id="volcMoReset" style="color:var(--green);">-</span>)</span>
+              <span id="volcMoHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-green" id="volcMoBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Expiration Timestamps Summary -->
+          <div style="margin-top: 12px; background: rgba(13, 17, 23, 0.7); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px;">
+            <div style="font-size: 11px; color: var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+              <span>⏰ 5小时重置到期：</span>
+              <span class="highlight-pill" id="volc5hExpire">随时可用</span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; display:flex; justify-content:space-between; align-items:center;">
+              <span>📅 7天配额重置到期：</span>
+              <span style="font-family:ui-monospace; font-size:11px; color:var(--text);" id="volcWkExpire">-</span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; display:flex; justify-content:space-between; align-items:center;">
+              <span>🗓️ 月度配额重置到期：</span>
+              <span style="font-family:ui-monospace; font-size:11px; color:var(--text);" id="volcMoExpire">-</span>
             </div>
           </div>
         </div>
@@ -641,7 +673,11 @@
       </div>
       <div class="form-group" style="margin-bottom:14px;">
         <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">火山引擎模型标识</label>
-        <input type="text" id="cfgVolcModel" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" value="doubao-seed-evolving" placeholder="例如 doubao-seed-evolving">
+        <input type="text" id="cfgVolcModel" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" value="doubao-seed-evolving" placeholder="例如 ark-code-latest 或 doubao-seed-evolving">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">火山引擎套餐到期日期 (可选，格式 YYYY-MM-DD)</label>
+        <input type="date" id="cfgVolcExpire" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;">
       </div>
       <div class="form-group" style="margin-bottom:14px;">
         <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">WorkBuddy Bearer Token (可选，用于自动打卡)</label>
@@ -813,26 +849,27 @@
 
       // 2.1 Codex 5h Quota Bar
       const cdx5h = cdx.five_hour_usage || {};
-      const cdx5hPct = cdx5h.percent || 0;
+      const cdx5hPct = clampPct(cdx5h.percent || 0);
       document.getElementById('cdx5hCountdown').innerText = cdx5h.reset_countdown_human || '随时可用';
-      document.getElementById('cdx5hHuman').innerText = `${cdx5h.human_used || '0次'} (${cdx5hPct}%)`;
+      document.getElementById('cdx5hHuman').innerText = cdx5h.human_used || `${cdx5hPct}%`;
       const cdx5hBar = document.getElementById('cdx5hBar');
       cdx5hBar.style.width = cdx5hPct + '%';
       cdx5hBar.className = 'progress-bar-fill ' + getBarFillClass(cdx5hPct);
 
       // 2.2 Codex Weekly Quota Bar (周配额)
       const cdxWk = cdx.weekly_usage || {};
-      const cdxWkPct = cdxWk.percent || 0;
+      const cdxWkPct = clampPct(cdxWk.percent || 0);
       document.getElementById('cdxWkCountdown').innerText = cdxWk.reset_countdown_human || '周重置';
-      document.getElementById('cdxWkHuman').innerText = `${cdxWk.human_used || '0次'} (${cdxWkPct}%)`;
+      document.getElementById('cdxWkHuman').innerText = cdxWk.human_used || `${cdxWkPct}%`;
       const cdxWkBar = document.getElementById('cdxWkBar');
       cdxWkBar.style.width = cdxWkPct + '%';
       cdxWkBar.className = 'progress-bar-fill ' + getBarFillClass(cdxWkPct);
 
-      // 2.3 Codex 重置次数与到期时间
-      const rem5h = (cdx5h.remaining_events !== undefined ? cdx5h.remaining_events : 2500).toLocaleString();
-      const remWk = (cdxWk.remaining_events !== undefined ? cdxWk.remaining_events : 15000).toLocaleString();
-      document.getElementById('cdxRemText').innerText = `5h剩余: ${rem5h} 次 · 周剩余: ${remWk} 次`;
+      // 2.3 Codex 剩余额度与到期时间
+      const rem5hPct = cdx5h.remaining_percent !== undefined ? `${cdx5h.remaining_percent}%` : `${Math.max(0, 100 - cdx5hPct).toFixed(1)}%`;
+      const remWkPct = cdxWk.remaining_percent !== undefined ? `${cdxWk.remaining_percent}%` : `${Math.max(0, 100 - cdxWkPct).toFixed(1)}%`;
+      const planSuffix = cdx.plan_type && cdx.plan_type !== '未知' ? ` · ${cdx.plan_type}` : '';
+      document.getElementById('cdxRemText').innerText = `5h剩余: ${rem5hPct} · 周剩余: ${remWkPct}${planSuffix}`;
       document.getElementById('cdx5hExpire').innerText = cdx5h.reset_expire_time || '随时就绪';
       document.getElementById('cdxWkExpire').innerText = cdxWk.reset_expire_time || '自然周一 00:00 UTC';
 
@@ -906,18 +943,36 @@
       }
       document.getElementById('volcModel').innerText = volc.model_name || '-';
       document.getElementById('volcLatency').innerText = (volc.latency_ms !== null && volc.latency_ms !== undefined) ? `${volc.latency_ms} ms` : '-';
-      const wq = volc.weekly_quota || {};
-      document.getElementById('volcWeek').innerText = (wq.percent !== null && wq.percent !== undefined && volc.configured) ? `${wq.percent}%` : '-';
+      document.getElementById('volcPlanExpire').innerText = volc.plan_expire_human || '未设置';
       document.getElementById('volcMsg').innerText = volc.message || '-';
 
       const q5h = volc.five_hour_quota || {};
       const pct = clampPct(q5h.percent || 0);
       document.getElementById('volcPct').innerText = `${q5h.human_used ? q5h.human_used + ' ' : ''}(${pct}%)`;
       document.getElementById('volcReset').innerText = q5h.reset_countdown_human || '滚动计算中';
-
       const bar = document.getElementById('volcBar');
       bar.style.width = pct + '%';
       bar.className = 'progress-bar-fill ' + getBarFillClass(pct);
+
+      const wq = volc.weekly_quota || {};
+      const wqPct = clampPct(wq.percent || 0);
+      document.getElementById('volcWkReset').innerText = wq.reset_countdown_human || '周重置';
+      document.getElementById('volcWkHuman').innerText = `${wq.human_used ? wq.human_used + ' ' : ''}(${wqPct}%)`;
+      const wkBar = document.getElementById('volcWkBar');
+      wkBar.style.width = wqPct + '%';
+      wkBar.className = 'progress-bar-fill ' + getBarFillClass(wqPct);
+
+      const mq = volc.monthly_quota || {};
+      const mqPct = clampPct(mq.percent || 0);
+      document.getElementById('volcMoReset').innerText = mq.reset_countdown_human || '月重置';
+      document.getElementById('volcMoHuman').innerText = `${mq.human_used ? mq.human_used + ' ' : ''}(${mqPct}%)`;
+      const moBar = document.getElementById('volcMoBar');
+      moBar.style.width = mqPct + '%';
+      moBar.className = 'progress-bar-fill ' + getBarFillClass(mqPct);
+
+      document.getElementById('volc5hExpire').innerText = q5h.reset_expire_time || '随时可用';
+      document.getElementById('volcWkExpire').innerText = wq.reset_expire_time || '-';
+      document.getElementById('volcMoExpire').innerText = mq.reset_expire_time || '-';
 
       // 5. 检查是否触发 90% 熔断
       if (data.circuit_breaker && data.circuit_breaker.triggered) {
@@ -1239,6 +1294,7 @@
             : '填入火山方舟 API Key';
 
           document.getElementById('cfgVolcModel').value = volc.model || 'doubao-seed-evolving';
+          document.getElementById('cfgVolcExpire').value = volc.plan_expire_date || '';
 
           const wbTokenEl = document.getElementById('cfgWbToken');
           wbTokenEl.value = '';
@@ -1266,6 +1322,7 @@
     async function saveCredentials() {
       const vk = document.getElementById('cfgVolcKey').value.trim();
       const vm = document.getElementById('cfgVolcModel').value.trim();
+      const ve = document.getElementById('cfgVolcExpire').value.trim();
       const wt = document.getElementById('cfgWbToken').value.trim();
       const wc = document.getElementById('cfgWbCookie').value.trim();
       const wtm = document.getElementById('cfgWbTime').value.trim();
@@ -1277,7 +1334,7 @@
       }
 
       const payload = {
-        volcengine: { model: vm || 'doubao-seed-evolving', demo_mode: dm },
+        volcengine: { model: vm || 'doubao-seed-evolving', plan_expire_date: ve, demo_mode: dm },
         workbuddy: { checkin_time: wtm, demo_mode: dm }
       };
       if (vk) payload.volcengine.api_key = vk;
