@@ -399,18 +399,22 @@
             </div>
           </div>
 
-          <!-- Reset Counters & Expiration Stats (重置次数与到期时间) -->
+          <!-- Reset Counters & Expiration Stats (可用完全重置次数与到期时间) -->
           <div style="margin-top: 12px; background: rgba(13, 17, 23, 0.7); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px;">
+            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
+              <span>🔄 本周可用完全重置次数：</span>
+              <span style="color:var(--green); font-weight:600;" id="cdxFullResets">-</span>
+            </div>
             <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display:flex; justify-content:space-between;">
-              <span>🔄 剩余操作可用次数：</span>
-              <span style="color:var(--green); font-weight:600;" id="cdxRemText">5h剩余 2,500 次 · 周剩余 15,000 次</span>
+              <span>📊 剩余额度概览：</span>
+              <span style="color:var(--accent); font-weight:600;" id="cdxRemText">5h剩余 100% · 周剩余 100%</span>
             </div>
             <div style="font-size: 11px; color: var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
-              <span>⏰ 5小时重置到期：</span>
+              <span>⏰ 5小时完全重置到期：</span>
               <span class="highlight-pill" id="cdx5hExpire">随时就绪</span>
             </div>
             <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; display:flex; justify-content:space-between; align-items:center;">
-              <span>📅 周配额重置到期：</span>
+              <span>📅 7天周配额重置到期：</span>
               <span style="font-family:ui-monospace; font-size:11px; color:var(--text);" id="cdxWkExpire">-</span>
             </div>
           </div>
@@ -676,6 +680,14 @@
         <input type="text" id="cfgVolcModel" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" value="doubao-seed-evolving" placeholder="例如 ark-code-latest 或 doubao-seed-evolving">
       </div>
       <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">火山引擎 AccessKey ID / AK (可选，填入 AK+SK 可拉取真实 5h/7天/月额度)</label>
+        <input type="password" id="cfgVolcAk" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" placeholder="填入火山引擎 IAM AccessKey ID">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">火山引擎 SecretAccessKey / SK (与 AK 配套使用)</label>
+        <input type="password" id="cfgVolcSk" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" placeholder="填入火山引擎 IAM SecretKey">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
         <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">火山引擎套餐到期日期 (可选，格式 YYYY-MM-DD)</label>
         <input type="date" id="cfgVolcExpire" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;">
       </div>
@@ -865,7 +877,10 @@
       cdxWkBar.style.width = cdxWkPct + '%';
       cdxWkBar.className = 'progress-bar-fill ' + getBarFillClass(cdxWkPct);
 
-      // 2.3 Codex 剩余额度与到期时间
+      // 2.3 Codex 可用完全重置次数与到期时间
+      const rStats = cdx.reset_stats || {};
+      const fullResets = rStats.available_full_resets !== undefined ? rStats.available_full_resets : '-';
+      document.getElementById('cdxFullResets').innerText = fullResets !== '-' ? `剩余 ${fullResets} 次 5h 完全重置` : '-';
       const rem5hPct = cdx5h.remaining_percent !== undefined ? `${cdx5h.remaining_percent}%` : `${Math.max(0, 100 - cdx5hPct).toFixed(1)}%`;
       const remWkPct = cdxWk.remaining_percent !== undefined ? `${cdxWk.remaining_percent}%` : `${Math.max(0, 100 - cdxWkPct).toFixed(1)}%`;
       const planSuffix = cdx.plan_type && cdx.plan_type !== '未知' ? ` · ${cdx.plan_type}` : '';
@@ -1294,6 +1309,12 @@
             : '填入火山方舟 API Key';
 
           document.getElementById('cfgVolcModel').value = volc.model || 'doubao-seed-evolving';
+          const volcAkEl = document.getElementById('cfgVolcAk');
+          volcAkEl.value = '';
+          volcAkEl.placeholder = volc.ak_configured ? `已配置 (${volc.ak_masked})，留空保持不变` : '填入火山引擎 IAM AccessKey ID';
+          const volcSkEl = document.getElementById('cfgVolcSk');
+          volcSkEl.value = '';
+          volcSkEl.placeholder = volc.sk_configured ? `已配置 (${volc.sk_masked})，留空保持不变` : '填入火山引擎 IAM SecretKey';
           document.getElementById('cfgVolcExpire').value = volc.plan_expire_date || '';
 
           const wbTokenEl = document.getElementById('cfgWbToken');
@@ -1322,6 +1343,8 @@
     async function saveCredentials() {
       const vk = document.getElementById('cfgVolcKey').value.trim();
       const vm = document.getElementById('cfgVolcModel').value.trim();
+      const vak = document.getElementById('cfgVolcAk').value.trim();
+      const vsk = document.getElementById('cfgVolcSk').value.trim();
       const ve = document.getElementById('cfgVolcExpire').value.trim();
       const wt = document.getElementById('cfgWbToken').value.trim();
       const wc = document.getElementById('cfgWbCookie').value.trim();
@@ -1338,6 +1361,8 @@
         workbuddy: { checkin_time: wtm, demo_mode: dm }
       };
       if (vk) payload.volcengine.api_key = vk;
+      if (vak) payload.volcengine.ak = vak;
+      if (vsk) payload.volcengine.sk = vsk;
       if (wt) payload.workbuddy.token = wt;
       if (wc) payload.workbuddy.cookie = wc;
 

@@ -249,9 +249,19 @@ def get_codex_status():
             "human_used": f"已用 {s_used}% (剩余 {s_rem}%)"
         }
 
+        # 计算本周剩余可用 5h 完全重置次数（周重置前还剩多少个完整的 5 小时重置周期）
+        if s_resets > now_ts:
+            base_ts = p_resets if p_resets > now_ts else now_ts
+            full_resets_left = max(0, int((s_resets - base_ts) // (5 * 3600))) + (1 if p_resets > now_ts else 0)
+        else:
+            full_resets_left = 0
+
         status["reset_stats"] = {
             "five_hour_remaining": f"{p_rem}%",
             "weekly_remaining": f"{s_rem}%",
+            "available_full_resets": full_resets_left,
+            "next_full_reset_time": p_expire,
+            "weekly_full_reset_time": s_expire,
             "cycle_status": "充足" if p_rem > 30 else ("警示" if p_rem > 10 else "紧张")
         }
 

@@ -6,7 +6,9 @@ Tracks Volcengine Ark Coding Plan / Agent Plan usage, 5h rolling window, weekly/
 """
 
 import calendar
-from datetime import datetime
+from datetime import datetime, timezone
+import hashlib
+import hmac
 import json
 import ssl
 import time
@@ -19,6 +21,81 @@ def _get_ssl_context(config):
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     return ctx
+
+def _sign_hmac_sha256(key_bytes, msg_str):
+    return hmac.new(key_bytes, msg_str.encode("utf-8"), hashlib.sha256).digest()
+
+def _query_volcengine_openapi_usage(ak, sk, ssl_ctx, region="cn-beijing"):
+    """Call Volcengine Ark OpenAPI GetCodingPlanUsage via Signature V4 (HMAC-SHA256)."""
+    host = "open.volcengineapi.com"
+    service = "ark"
+    action = "GetCodingPlanUsage"
+    version = "2024-01-01"
+    method = "POST"
+    canonical_uri = "/"
+    canonical_querystring = f"Action={action}&Version={version}"
+    body_bytes = b"{}"
+    payload_hash = hashlib.sha256(body_bytes).hexdigest()
+
+    now_utc = datetime.now(timezone.utc)
+    x_date = now_utc.strftime("%Y%m%dT%H%M%SZ")
+    short_date = now_utc.strftime("%Y%m%d")
+
+    signed_headers = "content-type;host;x-content-sha256;x-date"
+    canonical_headers = (
+        f"content-type:application/json\n"
+        f"host:{host}\n"
+        f"x-content-sha256:{payload_hash}\n"
+        f"x-date:{x_date}\n"
+    )
+    canonical_request = "\n".join([
+        method,
+        canonical_uri,
+        canonical_querystring,
+        canonical_headers,
+        signed_headers,
+        payload_hash,
+    ])
+    credential_scope = f"{short_date}/{region}/{service}/request"
+    string_to_sign = "\n".join([
+        "HMAC-SHA256",
+        x_date,
+        credential_scope,
+        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+    ])
+    k_date = _sign_hmac_sha256(sk.encode("utf-8"), short_date)
+    k_region = _sign_hmac_sha256(k_date, region)
+    k_service = _sign_hmac_sha256(k_region, service)
+    k_signing = _sign_hmac_sha256(k_service, "request")
+    signature = hmac.new(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    auth_header = (
+        f"HMAC-SHA256 Credential={ak}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+    headers = {
+        "Content-Type": "application/json",
+        "Host": host,
+        "X-Date": x_date,
+        "X-Content-Sha256": payload_hash,
+        "Authorization": auth_header,
+    }
+    url = f"https://{host}/?{canonical_querystring}"
+    req = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
+    with urllib.request.urlopen(req, context=ssl_ctx, timeout=8) as resp:
+        return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+def _format_reset_cd(sec_left):
+    if sec_left <= 0:
+        return "随时可用"
+    d = sec_left // 86400
+    h = (sec_left % 86400) // 3600
+    m = (sec_left % 3600) // 60
+    if d > 0:
+        return f"{d}天{h}小时后重置"
+    if h > 0:
+        return f"{h}小时{m:02d}分后重置"
+    return f"{m}分钟后重置"
 
 def _calc_window_resets(now_ts):
     """Calculate standard 5h, weekly (Monday 00:00 UTC), and monthly (1st 00:00 local) reset info."""
@@ -173,7 +250,77 @@ def get_volcengine_plan_status(config=None):
     status["configured"] = True
     ssl_ctx = _get_ssl_context(config)
 
-    # Attempt to query Volcano Ark usage
+    # 0. 若配置了火山引擎 AK/SK，优先调用控制面 OpenAPI GetCodingPlanUsage 获取真实百分比与重置时间戳
+    if ak and sk:
+        oa_start = time.time()
+        try:
+            oa_resp = _query_volcengine_openapi_usage(ak, sk, ssl_ctx)
+            latency = int((time.time() - oa_start) * 1000)
+            result = oa_resp.get("Result") or oa_resp
+            quota_list = result.get("QuotaUsage") or []
+            if quota_list:
+                status["healthy"] = True
+                status["latency_ms"] = latency
+                status["mode"] = "OpenAPI (AK/SK 真实配额)"
+                plan_st = result.get("Status") or "Running"
+                status["message"] = f"OpenAPI 真实同步成功 · 套餐状态: {plan_st} ({latency}ms)"
+                for item in quota_list:
+                    lvl = str(item.get("Level") or "").lower()
+                    pct = round(float(item.get("Percent") or 0.0), 1)
+                    rts = int(item.get("ResetTimestamp") or 0)
+                    sec_left = max(0, rts - now_ts) if rts > 0 else 0
+                    exp_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rts)) if rts > 0 else "随时可用"
+                    cd_str = _format_reset_cd(sec_left) if rts > 0 else "滚动窗口"
+                    rem_pct = round(max(0.0, 100.0 - pct), 1)
+                    if lvl in ("session", "5h", "five_hour"):
+                        status["five_hour_quota"] = {
+                            "used": pct,
+                            "total": 100,
+                            "percent": pct,
+                            "status": _quota_level(pct),
+                            "reset_countdown_seconds": sec_left,
+                            "reset_countdown_human": cd_str,
+                            "reset_expire_time": exp_str,
+                            "human_used": f"已用 {pct}% (剩余 {rem_pct}%)"
+                        }
+                    elif lvl in ("weekly", "week", "7d"):
+                        status["weekly_quota"] = {
+                            "used": pct,
+                            "total": 100,
+                            "percent": pct,
+                            "status": _quota_level(pct),
+                            "reset_countdown_human": cd_str,
+                            "reset_expire_time": exp_str,
+                            "human_used": f"已用 {pct}% (剩余 {rem_pct}%)"
+                        }
+                    elif lvl in ("monthly", "month", "30d"):
+                        status["monthly_quota"] = {
+                            "used": pct,
+                            "total": 100,
+                            "percent": pct,
+                            "status": _quota_level(pct),
+                            "reset_countdown_human": cd_str,
+                            "reset_expire_time": exp_str,
+                            "human_used": f"已用 {pct}% (剩余 {rem_pct}%)"
+                        }
+                return status
+        except urllib.error.HTTPError as e:
+            err_body = ""
+            try:
+                err_body = e.read().decode("utf-8", errors="replace")[:120]
+            except Exception:
+                pass
+            if not api_key:
+                status["healthy"] = False
+                status["message"] = f"OpenAPI AK/SK 查询失败: HTTP {e.code} {err_body}"
+                return status
+        except Exception as e:
+            if not api_key:
+                status["healthy"] = False
+                status["message"] = f"OpenAPI 请求异常: {str(e)}"
+                return status
+
+    # Attempt to query Volcano Ark usage via Inference API Key
     start_time = time.time()
     headers = {
         "Authorization": f"Bearer {api_key}",

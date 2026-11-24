@@ -78,6 +78,21 @@ def _extract_ws_payload(buf):
         idx = offset + payload_len
     return bytes(out)
 
+def _format_model_name(raw_model):
+    """Format raw model ID like 'gemini-4-neon-medium' into 'Gemini 4 Neon (Medium)'."""
+    if not raw_model:
+        return "未知模型"
+    s = str(raw_model).strip()
+    if " " in s:
+        return s
+    parts = [p for p in s.split("-") if p and p.lower() != "tiered"]
+    tiers = {"low", "medium", "high", "max", "thinking", "fast"}
+    suffix = None
+    if len(parts) > 1 and parts[-1].lower() in tiers:
+        suffix = parts.pop().capitalize()
+    label = " ".join(p.capitalize() if not p[0].isdigit() else p for p in parts)
+    return f"{label} ({suffix})" if suffix else label
+
 def _parse_transcript_file(fpath, mtime, size):
     """Parse a single transcript.jsonl file and return cached summary."""
     steps = []
@@ -103,11 +118,16 @@ def _parse_transcript_file(fpath, mtime, size):
                         step_ts = parse_iso_ts(obj.get("created_at"))
                         if step_ts == 0:
                             step_ts = int(mtime)
-                        is_claude = "claude" in str(obj.get("model", "")).lower()
+                        raw_m = str(obj.get("model", ""))
+                        is_claude = "claude" in raw_m.lower()
                         steps.append((step_ts, inp + out, is_claude))
                         if step_ts >= latest_ts:
                             latest_ts = step_ts
-                            latest_step = {"input_tokens": inp, "cache_read_tokens": cache}
+                            latest_step = {
+                                "input_tokens": inp,
+                                "cache_read_tokens": cache,
+                                "model": raw_m
+                            }
                 except Exception:
                     pass
     except Exception:
@@ -394,6 +414,8 @@ def get_antigravity_status():
         status["last_active"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(latest_mtime))
 
     if latest_step:
+        if latest_step.get("model"):
+            status["quota"]["current_model"] = _format_model_name(latest_step.get("model"))
         inp = latest_step.get("input_tokens", 0)
         cached = latest_step.get("cache_read_tokens", 0)
         ctx_used = inp + cached
@@ -588,10 +610,11 @@ def get_antigravity_status():
 
         g_pct_5h = round(min(100.0, (gemini_5h / limit_5h) * 100), 1)
         c_pct_5h = round(min(100.0, (claude_5h / (limit_5h / 2)) * 100), 1)
+        active_gemini_label = status["quota"]["current_model"] if "claude" not in status["quota"]["current_model"].lower() else "Gemini 主力池"
         status["quota"]["dual_models"] = [
             {
                 "id": "model_gemini",
-                "name": "⚡ Gemini 3.8 Flash (主力套)",
+                "name": f"⚡ {active_gemini_label} (主力套)",
                 "type": "官方推荐 · 日常主力编程",
                 "five_hour_used": f"{gemini_5h / 1000:.1f}k",
                 "weekly_used": f"{gemini_wk / 1000000:.2f}M",
