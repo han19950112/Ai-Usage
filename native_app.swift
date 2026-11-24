@@ -172,14 +172,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWind
         if FileManager.default.isExecutableFile(atPath: startScript) {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/bin/bash")
-            proc.arguments = [startScript]
+            proc.arguments = [startScript, "--daemon"]
             proc.currentDirectoryURL = URL(fileURLWithPath: projectDir)
             try? proc.run()
         } else {
             // Direct python3 fallback
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            proc.arguments = ["\(projectDir)/server.py", "--daemon"]
+            proc.arguments = ["\(projectDir)/server.py"]
             proc.currentDirectoryURL = URL(fileURLWithPath: projectDir)
             try? proc.run()
         }

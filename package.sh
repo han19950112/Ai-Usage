@@ -3,6 +3,7 @@
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
+DIR_NAME="$(basename "$DIR")"
 PARENT_DIR="$(cd "$DIR/.." && pwd)"
 PACKAGE_NAME="Agent-Cockpit-macOS.zip"
 OUTPUT_PATH="$PARENT_DIR/$PACKAGE_NAME"
@@ -18,13 +19,17 @@ cd "$PARENT_DIR"
 rm -f "$OUTPUT_PATH"
 
 echo "🗜️ 正在压缩项目文件..."
-zip -r -q -X "$PACKAGE_NAME" agent-cockpit \
-    -x "agent-cockpit/server.log" \
-    -x "agent-cockpit/server.pid" \
-    -x "agent-cockpit/*.pyc" \
-    -x "agent-cockpit/__pycache__/*" \
-    -x "agent-cockpit/monitors/__pycache__/*" \
-    -x "agent-cockpit/.DS_Store"
+zip -r -q -X "$PACKAGE_NAME" "$DIR_NAME" \
+    -x "$DIR_NAME/.git/*" \
+    -x "$DIR_NAME/config.json" \
+    -x "$DIR_NAME/checkin_history.json" \
+    -x "$DIR_NAME/server.log" \
+    -x "$DIR_NAME/server_err.log" \
+    -x "$DIR_NAME/server.pid" \
+    -x "$DIR_NAME/*.pyc" \
+    -x "$DIR_NAME/__pycache__/*" \
+    -x "$DIR_NAME/monitors/__pycache__/*" \
+    -x "$DIR_NAME/.DS_Store"
 
 echo "=========================================="
 echo "🎉 归档打包完成！"

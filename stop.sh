@@ -18,11 +18,11 @@ if [ -f "$PID_FILE" ]; then
     fi
 fi
 
-# 备用清理：检查占用 5999 端口的 python 进程
-PORT_PIDS=$(lsof -ti:5999 2>/dev/null || true)
+# 备用清理：仅检查监听 5999 端口的服务端进程（避免误杀浏览器等客户端连接）
+PORT_PIDS=$(lsof -tiTCP:5999 -sTCP:LISTEN 2>/dev/null || true)
 if [ -n "$PORT_PIDS" ]; then
     kill $PORT_PIDS 2>/dev/null || true
-    echo "✅ 占用端口 5999 的后台进程已清理"
+    echo "✅ 监听端口 5999 的后台服务进程已清理"
     STOPPED=true
 fi
 

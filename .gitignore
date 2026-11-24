@@ -2,6 +2,7 @@
 config.json
 checkin_history.json
 server.log
+server_err.log
 server.pid
 
 # 编译生成的桌面应用与发布包

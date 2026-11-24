@@ -14,7 +14,7 @@ if [ -f "$PID_FILE" ]; then
     fi
 fi
 
-PORT_PIDS=$(lsof -ti:5999 2>/dev/null || true)
+PORT_PIDS=$(lsof -tiTCP:5999 -sTCP:LISTEN 2>/dev/null || true)
 if [ -n "$PORT_PIDS" ]; then
     echo "🟢 服务状态: 运行中 (端口 5999, PID: $PORT_PIDS)"
     echo "🌐 本地面板: http://localhost:5999"

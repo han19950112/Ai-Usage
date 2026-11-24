@@ -11,8 +11,7 @@ Fallback gracefully to local transcript parsing when direct bridge is offline.
 """
 
 import base64
-import calendar
-from datetime import datetime, timezone
+from datetime import datetime
 import glob
 import json
 import os
@@ -20,17 +19,100 @@ import re
 import socket
 import struct
 import subprocess
+import threading
 import time
 import urllib.request
 
+# Per-file transcript cache: {fpath: (mtime, size, steps_list, total_inp, total_out, total_cache, latest_ts, latest_step)}
+_TRANSCRIPT_CACHE = {}
+_CACHE_LOCK = threading.Lock()
+
 def parse_iso_ts(iso_str):
-    if not iso_str: return 0
+    if not iso_str:
+        return 0
     try:
-        clean = iso_str.replace("Z", "+00:00")
+        clean = str(iso_str).replace("Z", "+00:00")
+        # Normalize fractional seconds > 6 digits for Python < 3.11 compatibility
+        clean = re.sub(r"\.(\d{6})\d+", r".\1", clean)
         dt = datetime.fromisoformat(clean)
         return int(dt.timestamp())
     except Exception:
         return 0
+
+def _build_ws_text_frame(payload_bytes):
+    """Build a masked RFC 6455 client-to-server WebSocket text frame."""
+    length = len(payload_bytes)
+    mask = os.urandom(4)
+    if length < 126:
+        header = bytearray([0x81, 0x80 | length])
+    elif length < 65536:
+        header = bytearray([0x81, 0x80 | 126]) + struct.pack(">H", length)
+    else:
+        header = bytearray([0x81, 0x80 | 127]) + struct.pack(">Q", length)
+    masked = bytearray(payload_bytes)
+    for i in range(length):
+        masked[i] ^= mask[i % 4]
+    return bytes(header + mask + masked)
+
+def _extract_ws_payload(buf):
+    """Extract text payload from one or more unmasked server-to-client WebSocket frames."""
+    out = bytearray()
+    idx = 0
+    n = len(buf)
+    while idx + 2 <= n:
+        payload_len = buf[idx + 1] & 0x7F
+        offset = idx + 2
+        if payload_len == 126:
+            if offset + 2 > n:
+                break
+            payload_len = struct.unpack(">H", buf[offset:offset + 2])[0]
+            offset += 2
+        elif payload_len == 127:
+            if offset + 8 > n:
+                break
+            payload_len = struct.unpack(">Q", buf[offset:offset + 8])[0]
+            offset += 8
+        if offset + payload_len > n:
+            break
+        out.extend(buf[offset:offset + payload_len])
+        idx = offset + payload_len
+    return bytes(out)
+
+def _parse_transcript_file(fpath, mtime, size):
+    """Parse a single transcript.jsonl file and return cached summary."""
+    steps = []
+    t_inp = 0
+    t_out = 0
+    t_cache = 0
+    latest_ts = 0
+    latest_step = None
+    try:
+        with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if "model" in obj:
+                        inp = int(obj.get("input_tokens", 0) or 0)
+                        out = int(obj.get("output_tokens", 0) or 0)
+                        cache = int(obj.get("cache_read_tokens", 0) or 0)
+                        t_inp += inp
+                        t_out += out
+                        t_cache += cache
+                        step_ts = parse_iso_ts(obj.get("created_at"))
+                        if step_ts == 0:
+                            step_ts = int(mtime)
+                        is_claude = "claude" in str(obj.get("model", "")).lower()
+                        steps.append((step_ts, inp + out, is_claude))
+                        if step_ts >= latest_ts:
+                            latest_ts = step_ts
+                            latest_step = {"input_tokens": inp, "cache_read_tokens": cache}
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return (mtime, size, steps, t_inp, t_out, t_cache, latest_ts, latest_step)
 
 def fetch_official_antigravity_quota(port=58321):
     """Query Antigravity's internal React Fiber store via local CDP port."""
@@ -67,7 +149,14 @@ def fetch_official_antigravity_quota(port=58321):
         s.sendall(handshake.encode())
         resp = b""
         while b"\r\n\r\n" not in resp:
-            resp += s.recv(1024)
+            chunk = s.recv(1024)
+            if not chunk:
+                s.close()
+                return None
+            resp += chunk
+            if len(resp) > 16384:
+                s.close()
+                return None
 
         if b"101" not in resp:
             s.close()
@@ -100,27 +189,30 @@ def fetch_official_antigravity_quota(port=58321):
         """
         eval_req = {"id": 101, "method": "Runtime.evaluate", "params": {"expression": js, "returnByValue": True}}
         payload = json.dumps(eval_req).encode('utf-8')
-        mask = os.urandom(4)
-        frame = bytearray([0x81, 0x80 | 126]) + struct.pack(">H", len(payload)) + mask
-        masked = bytearray(payload)
-        for i in range(len(masked)): masked[i] ^= mask[i % 4]
-        frame.extend(masked)
-        s.sendall(frame)
+        s.sendall(_build_ws_text_frame(payload))
 
         buf = bytearray()
         while True:
             chunk = s.recv(65536)
-            if not chunk: break
+            if not chunk:
+                break
             buf.extend(chunk)
-            if b'"id":101' in buf and buf.rstrip().endswith(b'}'): break
-            if len(buf) > 1024 * 1024: break
+            decoded = _extract_ws_payload(buf)
+            if decoded and b'"id":101' in decoded:
+                try:
+                    j = json.loads(decoded.decode('utf-8', errors='ignore'))
+                    s.close()
+                    return j.get("result", {}).get("result", {}).get("value")
+                except json.JSONDecodeError:
+                    pass
+            if len(buf) > 2 * 1024 * 1024:
+                break
         s.close()
 
-        offset = 2
-        if (buf[1] & 0x7f) == 126: offset = 4
-        elif (buf[1] & 0x7f) == 127: offset = 10
-        body = buf[offset:].decode('utf-8', errors='ignore')
-        j = json.loads(body)
+        decoded = _extract_ws_payload(buf)
+        if not decoded:
+            return None
+        j = json.loads(decoded.decode('utf-8', errors='ignore'))
         return j.get("result", {}).get("result", {}).get("value")
     except Exception:
         if s:
@@ -243,45 +335,60 @@ def get_antigravity_status():
         convs = [d for d in os.listdir(brain_dir) if os.path.isdir(os.path.join(brain_dir, d)) and not d.startswith(".")]
         status["active_conversations_count"] = len(convs)
         jsonl_files = glob.glob(os.path.join(brain_dir, "*", ".system_generated", "logs", "transcript.jsonl"))
-        
+        seen_paths = set()
+        latest_step_ts = 0
+
         for fpath in jsonl_files:
+            seen_paths.add(fpath)
             try:
-                mt = os.path.getmtime(fpath)
-                if mt > latest_mtime: latest_mtime = mt
-                with open(fpath, "r", encoding="utf-8", errors="replace") as f:
-                    for line in f:
-                        if not line.strip(): continue
-                        try:
-                            obj = json.loads(line)
-                            if "model" in obj:
-                                latest_step = obj
-                                inp = obj.get("input_tokens", 0)
-                                out = obj.get("output_tokens", 0)
-                                cache = obj.get("cache_read_tokens", 0)
-                                effective_tokens = inp + out
-                                total_input += inp
-                                total_output += out
-                                total_cached += cache
+                st = os.stat(fpath)
+                mt = st.st_mtime
+                sz = st.st_size
+                if mt > latest_mtime:
+                    latest_mtime = mt
 
-                                step_ts = parse_iso_ts(obj.get("created_at"))
-                                if step_ts == 0: step_ts = int(mt)
-                                
-                                m_name = obj.get("model", "").lower()
-                                is_claude = "claude" in m_name
+                with _CACHE_LOCK:
+                    cached = _TRANSCRIPT_CACHE.get(fpath)
+                if cached is None or cached[0] != mt or cached[1] != sz:
+                    parsed = _parse_transcript_file(fpath, mt, sz)
+                    with _CACHE_LOCK:
+                        _TRANSCRIPT_CACHE[fpath] = parsed
+                else:
+                    parsed = cached
 
-                                if step_ts >= five_h_ts:
-                                    tokens_5h += effective_tokens
-                                    if is_claude: claude_5h += effective_tokens
-                                    else: gemini_5h += effective_tokens
-                                    if oldest_5h_ts is None or step_ts < oldest_5h_ts:
-                                        oldest_5h_ts = step_ts
+                _, _, steps, t_inp, t_out, t_cache, f_latest_ts, f_latest_step = parsed
+                total_input += t_inp
+                total_output += t_out
+                total_cached += t_cache
 
-                                if step_ts >= seven_d_ts:
-                                    tokens_wk += effective_tokens
-                                    if is_claude: claude_wk += effective_tokens
-                                    else: gemini_wk += effective_tokens
-                        except Exception: pass
-            except Exception: pass
+                if f_latest_step and f_latest_ts >= latest_step_ts:
+                    latest_step_ts = f_latest_ts
+                    latest_step = f_latest_step
+
+                for step_ts, effective_tokens, is_claude in steps:
+                    if step_ts >= five_h_ts:
+                        tokens_5h += effective_tokens
+                        if is_claude:
+                            claude_5h += effective_tokens
+                        else:
+                            gemini_5h += effective_tokens
+                        if oldest_5h_ts is None or step_ts < oldest_5h_ts:
+                            oldest_5h_ts = step_ts
+
+                    if step_ts >= seven_d_ts:
+                        tokens_wk += effective_tokens
+                        if is_claude:
+                            claude_wk += effective_tokens
+                        else:
+                            gemini_wk += effective_tokens
+            except Exception:
+                pass
+
+        # Prune deleted files from cache
+        with _CACHE_LOCK:
+            for k in list(_TRANSCRIPT_CACHE.keys()):
+                if k not in seen_paths:
+                    _TRANSCRIPT_CACHE.pop(k, None)
 
     if latest_mtime > 0:
         status["last_active"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(latest_mtime))
@@ -462,20 +569,25 @@ def get_antigravity_status():
 
         utc_now = time.gmtime(now_ts)
         days_to_monday = (7 - utc_now.tm_wday) % 7
-        if days_to_monday == 0 and (utc_now.tm_hour > 0 or utc_now.tm_min > 0): days_to_monday = 7
-        sec_left_wk = max(0, int(now_ts + (days_to_monday * 86400) - now_ts))
+        if days_to_monday == 0 and (utc_now.tm_hour > 0 or utc_now.tm_min > 0):
+            days_to_monday = 7
+        next_reset_epoch = now_ts + (days_to_monday * 86400) - (utc_now.tm_hour * 3600 + utc_now.tm_min * 60 + utc_now.tm_sec)
+        sec_left_wk = max(0, int(next_reset_epoch - now_ts))
         left_days = sec_left_wk // 86400
-        weekly_reset_str = f"{left_days}天后周重置"
+        left_hours = (sec_left_wk % 86400) // 3600
+        weekly_reset_str = f"{left_days}天{left_hours}小时后周重置"
 
         status["quota"]["weekly_usage"] = {
             "used_tokens": tokens_wk,
             "limit_tokens": limit_wk,
             "percent": pct_wk,
-            "status": "normal",
+            "status": "critical" if pct_wk >= 90 else ("warning" if pct_wk >= 75 else "normal"),
             "reset_countdown_human": weekly_reset_str,
             "human_used": f"{tokens_wk / 1000000:.2f}M / {limit_wk / 1000000:.0f}M ({pct_wk}%)"
         }
 
+        g_pct_5h = round(min(100.0, (gemini_5h / limit_5h) * 100), 1)
+        c_pct_5h = round(min(100.0, (claude_5h / (limit_5h / 2)) * 100), 1)
         status["quota"]["dual_models"] = [
             {
                 "id": "model_gemini",
@@ -484,10 +596,10 @@ def get_antigravity_status():
                 "five_hour_used": f"{gemini_5h / 1000:.1f}k",
                 "weekly_used": f"{gemini_wk / 1000000:.2f}M",
                 "limit_label": "主力模型池",
-                "percent_5h": round(min(100.0, (gemini_5h / limit_5h) * 100), 1),
+                "percent_5h": g_pct_5h,
                 "percent_week": round(min(100.0, (gemini_wk / limit_wk) * 100), 1),
-                "status": "就绪",
-                "level": "normal"
+                "status": "充足" if g_pct_5h < 70 else ("警示" if g_pct_5h < 90 else "紧张"),
+                "level": "normal" if g_pct_5h < 70 else ("warning" if g_pct_5h < 90 else "critical")
             },
             {
                 "id": "model_claude",
@@ -496,10 +608,10 @@ def get_antigravity_status():
                 "five_hour_used": f"{claude_5h / 1000:.1f}k",
                 "weekly_used": f"{claude_wk / 1000000:.2f}M",
                 "limit_label": "独立第三方高阶池",
-                "percent_5h": round(min(100.0, (claude_5h / (limit_5h / 2)) * 100), 1),
+                "percent_5h": c_pct_5h,
                 "percent_week": round(min(100.0, (claude_wk / (limit_wk / 2)) * 100), 1),
-                "status": "就绪",
-                "level": "normal"
+                "status": "充足" if c_pct_5h < 70 else ("警示" if c_pct_5h < 90 else "紧张"),
+                "level": "normal" if c_pct_5h < 70 else ("warning" if c_pct_5h < 90 else "critical")
             }
         ]
 

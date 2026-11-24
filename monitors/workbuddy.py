@@ -13,9 +13,12 @@ import ssl
 import urllib.request
 import urllib.error
 
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
+def _get_ssl_context(config):
+    ctx = ssl.create_default_context()
+    if config.get("insecure_ssl", False):
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 _LOCAL_HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "checkin_history.json")
 _USER_HISTORY = os.path.expanduser("~/.agent-cockpit/checkin_history.json")
@@ -35,6 +38,9 @@ def load_history():
 
 def save_history(history):
     try:
+        parent_dir = os.path.dirname(HISTORY_FILE)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -75,14 +81,19 @@ def run_workbuddy_checkin(config=None, force=False):
 
     # Demo mode simulation
     if demo_mode or (token == "demo" or cookie == "demo"):
+        last_ok = next((r for r in reversed(records) if r.get("success")), None)
+        prev_pts = int(last_ok.get("total_points", 1750)) if last_ok else 1750
+        prev_days = int(last_ok.get("consecutive_days", 2)) if last_ok else 2
+        new_pts = prev_pts + 100
+        new_days = prev_days + (0 if today_records else 1)
         record = {
             "date": today_str,
             "time": now_str,
             "success": True,
             "message": "签到成功！获得 +100 积分 (演示模式)",
             "reward_points": 100,
-            "consecutive_days": 3,
-            "total_points": 1850
+            "consecutive_days": new_days,
+            "total_points": new_pts
         }
         records.append(record)
         history["records"] = records[-50:]
@@ -98,10 +109,11 @@ def run_workbuddy_checkin(config=None, force=False):
     if cookie:
         headers["Cookie"] = cookie
 
+    ssl_ctx = _get_ssl_context(config)
     try:
         payload = json.dumps({"source": "desktop_client", "action": "daily_checkin"}).encode("utf-8")
         req = urllib.request.Request(api_url, data=payload, headers=headers, method="POST")
-        with urllib.request.urlopen(req, context=ssl_context, timeout=12) as resp:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=12) as resp:
             body = resp.read().decode("utf-8", errors="replace")
             res_data = json.loads(body)
             
@@ -109,7 +121,9 @@ def run_workbuddy_checkin(config=None, force=False):
             code = res_data.get("code", res_data.get("status", 0))
             is_ok = code in (0, 200, "0", "200", "SUCCESS")
             msg = res_data.get("msg", res_data.get("message", "签到请求已处理"))
-            data_field = res_data.get("data", {})
+            data_field = res_data.get("data") or {}
+            if not isinstance(data_field, dict):
+                data_field = {}
             
             reward = data_field.get("points", data_field.get("bonus", data_field.get("reward", 100)))
             total = data_field.get("total_points", data_field.get("current_points", 0))
@@ -220,8 +234,11 @@ def get_workbuddy_status(config=None):
         last = records[-1]
         status["last_checkin_time"] = last.get("time")
         status["last_checkin_message"] = last.get("message", "")
-        status["consecutive_days"] = last.get("consecutive_days", 0)
-        status["total_points"] = last.get("total_points", 0)
+        # 从最近一次成功记录恢复积分与连续天数，避免单次网络失败导致积分归零
+        last_success = next((r for r in reversed(records) if r.get("success")), None)
+        if last_success:
+            status["consecutive_days"] = last_success.get("consecutive_days", 0)
+            status["total_points"] = last_success.get("total_points", 0)
 
     # Check today
     for r in reversed(records):

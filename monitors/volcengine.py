@@ -5,17 +5,18 @@ Volcano Engine (火山引擎) Plan API Monitor Module
 Tracks Volcengine Ark Coding Plan / Agent Plan usage, 5h rolling window, weekly/monthly quotas.
 """
 
-import hashlib
-import hmac
 import json
 import ssl
 import time
 import urllib.request
 import urllib.error
 
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
+def _get_ssl_context(config):
+    ctx = ssl.create_default_context()
+    if config.get("insecure_ssl", False):
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 def get_volcengine_plan_status(config=None):
     if config is None:
@@ -56,39 +57,40 @@ def get_volcengine_plan_status(config=None):
     sk = config.get("sk", "").strip()
     base_url = config.get("base_url", "https://ark.cn-beijing.volces.com/api/v3").rstrip("/")
 
-    # If demo or mock is explicitly enabled for preview
-    if config.get("demo_mode", False) or (not api_key and not ak):
-        if not api_key and not ak:
-            status["configured"] = False
-            status["message"] = "请在 config.json 中配置 api_key 或 ak/sk"
-            return status
-        else:
-            status["configured"] = True
-            status["healthy"] = True
-            status["latency_ms"] = 48
-            status["five_hour_quota"] = {
-                "used": 42000,
-                "total": 100000,
-                "percent": 42.0,
-                "status": "normal",
-                "reset_countdown_seconds": 3840,
-                "reset_countdown_human": "1小时04分后开始释放",
-                "human_used": "42k / 100k"
-            }
-            status["weekly_quota"] = {
-                "used": 280000,
-                "total": 1000000,
-                "percent": 28.0
-            }
-            status["monthly_quota"] = {
-                "used": 1150000,
-                "total": 5000000,
-                "percent": 23.0
-            }
-            status["message"] = "演示模式已开启 (模拟配额)"
-            return status
+    # If demo mode is explicitly enabled for preview
+    if config.get("demo_mode", False):
+        status["configured"] = True
+        status["healthy"] = True
+        status["latency_ms"] = 48
+        status["five_hour_quota"] = {
+            "used": 42000,
+            "total": 100000,
+            "percent": 42.0,
+            "status": "normal",
+            "reset_countdown_seconds": 3840,
+            "reset_countdown_human": "1小时04分后开始释放",
+            "human_used": "42k / 100k"
+        }
+        status["weekly_quota"] = {
+            "used": 280000,
+            "total": 1000000,
+            "percent": 28.0
+        }
+        status["monthly_quota"] = {
+            "used": 1150000,
+            "total": 5000000,
+            "percent": 23.0
+        }
+        status["message"] = "演示模式已开启 (模拟配额)"
+        return status
+
+    if not api_key and not ak:
+        status["configured"] = False
+        status["message"] = "请在 config.json 中配置 api_key 或 ak/sk"
+        return status
 
     status["configured"] = True
+    ssl_ctx = _get_ssl_context(config)
 
     # Attempt to query Volcano Ark usage
     start_time = time.time()
@@ -101,7 +103,7 @@ def get_volcengine_plan_status(config=None):
         }
         
         req = urllib.request.Request(check_url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, context=ssl_context, timeout=8) as resp:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=8) as resp:
             latency = int((time.time() - start_time) * 1000)
             status["latency_ms"] = latency
             status["healthy"] = True
@@ -145,7 +147,7 @@ def get_volcengine_plan_status(config=None):
             try:
                 models_url = f"{base_url}/models"
                 m_req = urllib.request.Request(models_url, headers=headers, method="GET")
-                with urllib.request.urlopen(m_req, context=ssl_context, timeout=5) as m_resp:
+                with urllib.request.urlopen(m_req, context=ssl_ctx, timeout=5) as m_resp:
                     status["healthy"] = True
                     status["message"] = "API 凭据有效 (模型通道畅通，等待用量接口同步)"
                     status["five_hour_quota"]["percent"] = 15.0

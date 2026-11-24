@@ -56,12 +56,34 @@ def load_config():
 
 def save_config(cfg):
     try:
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
+        try:
+            os.chmod(CONFIG_FILE, 0o600)
+        except OSError:
+            pass
         return True
     except Exception as e:
         print(f"[Config] 保存失败: {e}")
         return False
+
+def _mask_secret(val):
+    if not val:
+        return ""
+    s = str(val).strip()
+    if not s:
+        return ""
+    return (s[:4] + "****" + s[-4:]) if len(s) > 8 else "****"
+
+def _is_valid_hhmm(val):
+    if not isinstance(val, str):
+        return False
+    m = re.match(r"^(\d{2}):(\d{2})$", val.strip())
+    if not m:
+        return False
+    hh, mm = int(m.group(1)), int(m.group(2))
+    return 0 <= hh <= 23 and 0 <= mm <= 59
 
 # =========================================================================
 # AG-UI Event Hub & Circuit Breaker Engine
@@ -118,6 +140,9 @@ CIRCUIT_BREAKER = {
     "current_usage": 0.0,
     "message": "",
     "timestamp": None,
+    "resolution": None,
+    "paused": False,
+    "dismissed_until": 0,
     "options": [
         {"id": "switch_backup", "label": "🔄 自动切换到高阶备用模型池 (Claude 3.5 Sonnet / Pro)", "action": "switch"},
         {"id": "pause_tasks", "label": "⏸️ 暂停自动化后台调度并等待滑动窗口重置", "action": "pause"},
@@ -130,7 +155,7 @@ LATEST_STATUS = {
     "server_time": "",
     "hostname": socket.gethostname(),
     "ag_ui_protocol": "1.0",
-    "circuit_breaker": CIRCUIT_BREAKER,
+    "circuit_breaker": dict(CIRCUIT_BREAKER),
     "antigravity": {},
     "codex": {},
     "volcengine": {},
@@ -138,6 +163,30 @@ LATEST_STATUS = {
 }
 
 STATUS_LOCK = threading.Lock()
+
+def _status_fingerprint(ag, cdx, wb, volc, cb):
+    """Build a lightweight comparable tuple to detect meaningful state changes."""
+    return (
+        ag.get("running"),
+        ag.get("language_server_running"),
+        ag.get("data_source"),
+        ag.get("quota", {}).get("current_model"),
+        ag.get("quota", {}).get("five_hour_usage", {}).get("percent"),
+        ag.get("quota", {}).get("weekly_usage", {}).get("percent"),
+        ag.get("quota", {}).get("context_window", {}).get("used_tokens"),
+        cdx.get("running"),
+        cdx.get("total_log_events"),
+        cdx.get("five_hour_usage", {}).get("events_5h"),
+        wb.get("running"),
+        wb.get("today_checked_in"),
+        wb.get("total_points"),
+        wb.get("last_checkin_time"),
+        volc.get("healthy"),
+        volc.get("configured"),
+        volc.get("five_hour_quota", {}).get("percent"),
+        cb.get("triggered"),
+        cb.get("paused"),
+    )
 
 def update_all_status(notify=True):
     global LATEST_STATUS
@@ -154,7 +203,7 @@ def update_all_status(notify=True):
         LATEST_STATUS["codex"] = cdx
         LATEST_STATUS["volcengine"] = volc
         LATEST_STATUS["workbuddy"] = wb
-        LATEST_STATUS["circuit_breaker"] = CIRCUIT_BREAKER
+        LATEST_STATUS["circuit_breaker"] = dict(CIRCUIT_BREAKER)
         snapshot = dict(LATEST_STATUS)
 
     if notify:
@@ -177,6 +226,7 @@ def background_scheduler():
     last_fast_check = time.time()
     last_heartbeat = time.time()
     last_day_checked = ""
+    last_fp = None
 
     while True:
         try:
@@ -187,8 +237,11 @@ def background_scheduler():
             cfg = load_config()
             target_time = cfg.get("workbuddy", {}).get("checkin_time", "09:00")
 
-            # 1. 每日定时自动打卡检查
-            if (current_time_str == target_time and last_day_checked != today_str):
+            with STATUS_LOCK:
+                is_paused = CIRCUIT_BREAKER.get("paused", False)
+
+            # 1. 每日定时自动打卡检查 (若处于熔断挂起状态则跳过)
+            if (not is_paused and current_time_str == target_time and last_day_checked != today_str):
                 wb_cfg = cfg.get("workbuddy", {})
                 if wb_cfg.get("auto_checkin_enabled", True):
                     print(f"[WorkBuddy] 触发每日定时签到 ({target_time})")
@@ -206,31 +259,37 @@ def background_scheduler():
                 
                 # --- 90% 熔断阈值检测 ---
                 ag_pct = ag.get("quota", {}).get("five_hour_usage", {}).get("percent", 0.0)
-                if ag_pct >= CIRCUIT_BREAKER["threshold"]:
-                    if not CIRCUIT_BREAKER["triggered"]:
-                        CIRCUIT_BREAKER["triggered"] = True
-                        CIRCUIT_BREAKER["agent"] = "Google Antigravity"
-                        CIRCUIT_BREAKER["current_usage"] = ag_pct
-                        CIRCUIT_BREAKER["message"] = f"Antigravity 5小时额度已达 {ag_pct}%，触碰 90% 警戒线！即将面临 Google 官方阶梯限流。"
-                        CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                        EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", CIRCUIT_BREAKER)
-
-                changed = False
+                trigger_payload = None
                 with STATUS_LOCK:
-                    ag_prev = LATEST_STATUS.get("antigravity", {}).get("quota", {}).get("five_hour_usage", {}).get("percent", 0)
-                    ag_curr = ag.get("quota", {}).get("five_hour_usage", {}).get("percent", 0)
-                    cdx_prev = LATEST_STATUS.get("codex", {}).get("total_log_events", 0)
-                    cdx_curr = cdx.get("total_log_events", 0)
+                    if ag_pct < CIRCUIT_BREAKER["threshold"]:
+                        # 水位回落至安全线以下时自动解除挂起与冷却
+                        if CIRCUIT_BREAKER.get("paused"):
+                            CIRCUIT_BREAKER["paused"] = False
+                        if CIRCUIT_BREAKER.get("dismissed_until", 0) > 0:
+                            CIRCUIT_BREAKER["dismissed_until"] = 0
+                    elif ag_pct >= CIRCUIT_BREAKER["threshold"]:
+                        if not CIRCUIT_BREAKER["triggered"] and now_ts >= CIRCUIT_BREAKER.get("dismissed_until", 0):
+                            CIRCUIT_BREAKER["triggered"] = True
+                            CIRCUIT_BREAKER["agent"] = "Google Antigravity"
+                            CIRCUIT_BREAKER["current_usage"] = ag_pct
+                            CIRCUIT_BREAKER["message"] = f"Antigravity 5小时额度已达 {ag_pct}%，触碰 90% 警戒线！即将面临 Google 官方阶梯限流。"
+                            CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                            trigger_payload = dict(CIRCUIT_BREAKER)
 
-                    if ag_prev != ag_curr or cdx_prev != cdx_curr:
-                        changed = True
+                    volc_curr = LATEST_STATUS.get("volcengine", {})
+                    curr_fp = _status_fingerprint(ag, cdx, wb, volc_curr, CIRCUIT_BREAKER)
+                    changed = (curr_fp != last_fp)
+                    last_fp = curr_fp
 
                     LATEST_STATUS["server_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
                     LATEST_STATUS["antigravity"] = ag
                     LATEST_STATUS["codex"] = cdx
                     LATEST_STATUS["workbuddy"] = wb
-                    LATEST_STATUS["circuit_breaker"] = CIRCUIT_BREAKER
+                    LATEST_STATUS["circuit_breaker"] = dict(CIRCUIT_BREAKER)
                     snapshot = dict(LATEST_STATUS)
+
+                if trigger_payload:
+                    EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", trigger_payload)
 
                 if changed:
                     EVENT_HUB.broadcast_event("STATE_DELTA", snapshot)
@@ -247,8 +306,8 @@ def background_scheduler():
                 EVENT_HUB.broadcast_raw(b": ping\n\n")
 
             # 5. 火山引擎 API 远端同步
-            volc_interval = cfg.get("volcengine", {}).get("check_interval_seconds", 300)
-            if now_ts - last_volc_check >= volc_interval:
+            volc_interval = max(30, int(cfg.get("volcengine", {}).get("check_interval_seconds", 300)))
+            if not is_paused and (now_ts - last_volc_check >= volc_interval):
                 update_all_status(notify=True)
                 last_volc_check = now_ts
 
@@ -348,12 +407,16 @@ class CockpitHandler(BaseHTTPRequestHandler):
         if path == "/api/config":
             cfg = load_config()
             safe_cfg = json.loads(json.dumps(cfg))
-            if safe_cfg.get("volcengine", {}).get("api_key"):
-                k = safe_cfg["volcengine"]["api_key"]
-                safe_cfg["volcengine"]["api_key_masked"] = k[:4] + "****" + k[-4:] if len(k) > 8 else "****"
-            if safe_cfg.get("workbuddy", {}).get("token"):
-                t = safe_cfg["workbuddy"]["token"]
-                safe_cfg["workbuddy"]["token_masked"] = t[:4] + "****" + t[-4:] if len(t) > 8 else "****"
+            volc_cfg = safe_cfg.setdefault("volcengine", {})
+            for secret_key in ("api_key", "ak", "sk"):
+                raw_val = volc_cfg.pop(secret_key, "")
+                volc_cfg[f"{secret_key}_configured"] = bool(raw_val and str(raw_val).strip())
+                volc_cfg[f"{secret_key}_masked"] = _mask_secret(raw_val)
+            wb_cfg = safe_cfg.setdefault("workbuddy", {})
+            for secret_key in ("token", "cookie"):
+                raw_val = wb_cfg.pop(secret_key, "")
+                wb_cfg[f"{secret_key}_configured"] = bool(raw_val and str(raw_val).strip())
+                wb_cfg[f"{secret_key}_masked"] = _mask_secret(raw_val)
             self.send_json(safe_cfg)
             return
 
@@ -363,11 +426,20 @@ class CockpitHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        content_len = int(self.headers.get("Content-Length", 0))
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            self.send_json({"success": False, "message": "无效的 Content-Length"}, code=400)
+            return
+        if content_len < 0 or content_len > 1024 * 1024:
+            self.send_json({"success": False, "message": "请求体过大或无效"}, code=413)
+            return
         body = self.rfile.read(content_len) if content_len > 0 else b"{}"
 
         try:
             req_json = json.loads(body.decode("utf-8", errors="replace")) if body else {}
+            if not isinstance(req_json, dict):
+                req_json = {}
         except Exception:
             req_json = {}
 
@@ -384,9 +456,16 @@ class CockpitHandler(BaseHTTPRequestHandler):
         # 2. 更新配置
         if path == "/api/config/update":
             cfg = load_config()
-            if "volcengine" in req_json: cfg["volcengine"].update(req_json["volcengine"])
-            if "workbuddy" in req_json: cfg["workbuddy"].update(req_json["workbuddy"])
-            if "server" in req_json: cfg["server"].update(req_json["server"])
+            if isinstance(req_json.get("volcengine"), dict):
+                cfg.setdefault("volcengine", {}).update(req_json["volcengine"])
+            if isinstance(req_json.get("workbuddy"), dict):
+                wb_update = dict(req_json["workbuddy"])
+                if "checkin_time" in wb_update and not _is_valid_hhmm(wb_update["checkin_time"]):
+                    self.send_json({"success": False, "message": "签到时间格式错误，请使用 HH:MM（如 09:00）"}, code=400)
+                    return
+                cfg.setdefault("workbuddy", {}).update(wb_update)
+            if isinstance(req_json.get("server"), dict):
+                cfg.setdefault("server", {}).update(req_json["server"])
             ok = save_config(cfg)
             update_all_status(notify=True)
             self.send_json({"success": ok, "message": "配置更新成功" if ok else "保存失败"})
@@ -394,16 +473,19 @@ class CockpitHandler(BaseHTTPRequestHandler):
 
         # 3. AG-UI 人机审批决策响应 (Human-in-the-Loop Resolution)
         if path == "/api/circuit_breaker/resolve":
-            action = req_json.get("action", "ignore")
-            CIRCUIT_BREAKER["triggered"] = False
-            CIRCUIT_BREAKER["resolution"] = action
-            msg = "审批已处理"
+            action = str(req_json.get("action", "ignore"))
+            with STATUS_LOCK:
+                CIRCUIT_BREAKER["triggered"] = False
+                CIRCUIT_BREAKER["resolution"] = action
+                CIRCUIT_BREAKER["paused"] = ("pause" in action)
+                # 冷却 30 分钟，防止高水位下 2 秒后重复弹窗
+                CIRCUIT_BREAKER["dismissed_until"] = time.time() + 1800
             if "switch" in action:
                 msg = "已确认熔断决策：系统已将后续任务导流至高阶备用模型池 (Claude 3.5 Sonnet / Pro)"
             elif "pause" in action:
                 msg = "已确认熔断决策：后台自动化任务已进入挂起保底状态，等待到期窗口重置"
             else:
-                msg = "已确认风险放行，保持现状并强制继续使用当前模型"
+                msg = "已确认风险放行，保持现状并强制继续使用当前模型（30分钟内不再重复拦截）"
             
             EVENT_HUB.broadcast_event("CIRCUIT_BREAKER_RESOLVED", {"action": action, "message": msg})
             update_all_status(notify=True)
@@ -412,24 +494,26 @@ class CockpitHandler(BaseHTTPRequestHandler):
 
         # 4. 模拟测试 90% 熔断拦截 (方便用户即时测试体验)
         if path == "/api/circuit_breaker/test":
-            CIRCUIT_BREAKER["triggered"] = True
-            CIRCUIT_BREAKER["agent"] = "Google Antigravity (模拟演练)"
-            CIRCUIT_BREAKER["current_usage"] = 92.4
-            CIRCUIT_BREAKER["message"] = "【演练测试】Antigravity 5小时配额消耗已达 92.4% (超过 90% 警戒线)！即将触发官方限流。"
-            CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", CIRCUIT_BREAKER)
+            with STATUS_LOCK:
+                CIRCUIT_BREAKER["triggered"] = True
+                CIRCUIT_BREAKER["agent"] = "Google Antigravity (模拟演练)"
+                CIRCUIT_BREAKER["current_usage"] = 92.4
+                CIRCUIT_BREAKER["message"] = "【演练测试】Antigravity 5小时配额消耗已达 92.4% (超过 90% 警戒线)！即将触发官方限流。"
+                CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                cb_snapshot = dict(CIRCUIT_BREAKER)
+            EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", cb_snapshot)
             self.send_json({"success": True, "message": "90% 熔断审批卡片已推送到前端界面！"})
             return
 
         # 5. AG-UI 智能体流式对话引擎 (Agent Chat & Command Streaming)
         if path == "/api/agent/chat":
-            agent_id = req_json.get("agent", "antigravity")
-            message = req_json.get("message", "").strip()
+            agent_id = str(req_json.get("agent", "antigravity"))
+            message = str(req_json.get("message", "")).strip()
 
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
+            self.send_header("Connection", "close")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
@@ -438,131 +522,159 @@ class CockpitHandler(BaseHTTPRequestHandler):
                 self.wfile.write(raw)
                 self.wfile.flush()
 
-            send_stream_event("RUN_STARTED", {"agent": agent_id, "prompt": message})
-            time.sleep(0.1)
+            try:
+                send_stream_event("RUN_STARTED", {"agent": agent_id, "prompt": message})
+                time.sleep(0.1)
 
-            # 模拟智能体思考过程与流式吐字
-            answer_parts = []
-            if "签到" in message or "打卡" in message:
-                send_stream_event("TOOL_CALL_START", {"tool": "workbuddy_auto_checkin", "args": {}})
-                time.sleep(0.4)
-                cfg = load_config()
-                ck_res = run_workbuddy_checkin(cfg.get("workbuddy", {}), force=True)
-                send_stream_event("TOOL_CALL_END", {"tool": "workbuddy_auto_checkin", "result": ck_res.get("message")})
-                answer_parts = [
-                    "收到您的指令，已为您触发 WorkBuddy 自动化打卡任务。\n",
-                    f"👉 **执行结果**：{ck_res.get('message')}\n",
-                    f"当前打卡连续天数：**{ck_res.get('record', {}).get('consecutive_days', 1)} 天**，最新积分余额已同步更新至驾驶舱！"
-                ]
-            elif any(k in message for k in ["日报", "体检", "报告", "简报", "概览", "总览"]):
-                send_stream_event("TOOL_CALL_START", {"tool": "generate_agent_cockpit_report", "args": {"scope": "all_agents"}})
-                time.sleep(0.5)
-                ag_s = get_antigravity_status()
-                cdx_s = get_codex_status()
-                wb_s = get_workbuddy_status(load_config().get("workbuddy", {}))
-                volc_s = get_volcengine_status(load_config().get("volcengine", {}))
-                send_stream_event("TOOL_CALL_END", {"tool": "generate_agent_cockpit_report", "result": "四大智能体状态数据全量汇总完成"})
-                
-                ag_pct = ag_s.get("quota", {}).get("five_hour_usage", {}).get("percent", 0)
-                cdx_rem = cdx_s.get("five_hour_usage", {}).get("remaining_events", 2500)
-                wb_pts = wb_s.get("total_points", 0)
-                wb_checked = "✅ 已打卡" if wb_s.get("today_checked_in") else "⏳ 未打卡"
-                volc_lat = f"{volc_s.get('latency_ms', 0)}ms" if volc_s.get('healthy') else "待连接"
-                
-                answer_parts = [
-                    "📋 **Agent Cockpit 多智能体实时运行与用量综合体检日报**\n\n",
-                    f"📅 **生成时间**：{time.strftime('%Y-%m-%d %H:%M:%S')} · 运行协议：AG-UI Protocol 1.0\n\n",
-                    "### 📊 核心智能体用量汇总：\n",
-                    f"1. **⚡ Google Antigravity**\n",
-                    f"   - 订阅与数据源：`{ag_s.get('user_tier', 'Google AI Pro')}` ({ag_s.get('data_source', '官方直连')})\n",
-                    f"   - 5小时额度：已用 **{ag_pct}%** (重置倒计时: {ag_s.get('quota', {}).get('five_hour_usage', {}).get('reset_countdown_human', '随时就绪')})\n",
-                    f"   - 双模型池状态：主力 Gemini ({ag_s.get('quota', {}).get('dual_models', [{}])[0].get('status', '充裕')}) · 高阶 Claude 3.5 Sonnet (就绪)\n",
-                    f"   - 缓存省流效益：Prompt 缓存命中率高达 **{ag_s.get('quota', {}).get('tokens', {}).get('cache_savings_ratio', '1.0x')}**\n\n",
-                    f"2. **🧠 OpenAI Codex**\n",
-                    f"   - 运行状态：{'✅ 执行中' if cdx_s.get('running') else '🟢 就绪 (已安装)'}\n",
-                    f"   - 5小时剩余操作数：**{cdx_rem:,}** / 2,500 次 · 周总额度消耗: {cdx_s.get('weekly_usage', {}).get('percent', 0)}%\n",
-                    f"   - 重置到期节点：{cdx_s.get('five_hour_usage', {}).get('reset_expire_time', '随时可用')}\n\n",
-                    f"3. **🤖 WorkBuddy 腾讯全场景**\n",
-                    f"   - 今日签到：**{wb_checked}** · 账户积分余额：**{wb_pts:,}** 积分 (连续 {wb_s.get('consecutive_days', 0)} 天)\n",
-                    f"   - 自动防断签：每日 09:00 守护线程已激活\n\n",
-                    f"4. **🌋 火山引擎 Plan API**\n",
-                    f"   - 接口状态：{'🟢 通道畅通' if volc_s.get('healthy') else '⚪ 待配置 Key'} (延迟: {volc_lat})\n",
-                    f"   - 方舟 Coding Plan 滑动限流：已用 {volc_s.get('five_hour_quota', {}).get('percent', 0)}%\n\n",
-                    f"🛡️ **安全熔断评估**：当前警戒线为 **{CIRCUIT_BREAKER['threshold']}%**，全部 Agent 处于绿色安全水位，无需人工干预。"
-                ]
-            elif "codex" in message.lower() or agent_id == "codex":
-                send_stream_event("TOOL_CALL_START", {"tool": "query_codex_status", "args": {}})
-                time.sleep(0.3)
-                cdx_s = get_codex_status()
-                send_stream_event("TOOL_CALL_END", {"tool": "query_codex_status", "result": f"读取到 {cdx_s.get('total_log_events', 0)} 条本地事件"})
-                c5h = cdx_s.get("five_hour_usage", {})
-                cwk = cdx_s.get("weekly_usage", {})
-                answer_parts = [
-                    "已为您查询 **OpenAI Codex** 本地编程智能体指标：\n\n",
-                    f"- 📁 **安装环境**：{cdx_s.get('home_dir')} (版本: {cdx_s.get('app_version', '1.0')})\n",
-                    f"- ⏱️ **5小时窗口操作数**：已执行 {c5h.get('events_5h', 0)} 次 (剩余 **{c5h.get('remaining_events', 2500):,}** 次)\n",
-                    f"- 📅 **7天周总配额**：已用 {cwk.get('events_week', 0)} 次 ({cwk.get('percent', 0)}%)\n",
-                    f"- ⏰ **下个释放周期**：{c5h.get('reset_countdown_human')} ({c5h.get('reset_expire_time')})\n",
-                    f"- 📊 **历史日志总数**：{cdx_s.get('total_log_events', 0):,} 条"
-                ]
-            elif any(k in message for k in ["火山", "方舟", "volcengine"]) or agent_id == "volcengine":
-                send_stream_event("TOOL_CALL_START", {"tool": "test_volcengine_latency", "args": {}})
-                time.sleep(0.4)
-                volc_s = get_volcengine_status(load_config().get("volcengine", {}))
-                send_stream_event("TOOL_CALL_END", {"tool": "test_volcengine_latency", "result": f"延迟 {volc_s.get('latency_ms', 0)}ms"})
-                answer_parts = [
-                    "已完成 **火山引擎方舟 Plan API** 通道探测：\n\n",
-                    f"- 📡 **通道连通性**：{'🟢 畅通' if volc_s.get('healthy') else '⚠️ 需检查配置'}\n",
-                    f"- ⚡ **网络往返延迟**：{volc_s.get('latency_ms', 0)} ms\n",
-                    f"- 🤖 **绑定预设模型**：`{volc_s.get('model_name')}`\n",
-                    f"- ⏱️ **5小时滑动用量**：{volc_s.get('five_hour_quota', {}).get('human_used', '0%')}\n",
-                    f"- 📅 **周配额消耗**：{volc_s.get('weekly_quota', {}).get('percent', 0)}%"
-                ]
-            elif "配额" in message or "额度" in message or "用量" in message:
-                send_stream_event("TOOL_CALL_START", {"tool": "query_official_quota", "args": {"target": agent_id}})
-                time.sleep(0.3)
-                ag_stat = get_antigravity_status()
-                q_info = ag_stat.get("quota", {}).get("five_hour_usage", {})
-                send_stream_event("TOOL_CALL_END", {"tool": "query_official_quota", "result": "100% 官方权威直连数据获取成功"})
-                answer_parts = [
-                    f"已为您实时核实 **{ag_stat.get('name')}** 的最新官方配额状态：\n\n",
-                    f"- 👑 **当前订阅**：{ag_stat.get('user_tier', 'Google AI Pro')}\n",
-                    f"- ⚡ **当前主力模型**：{ag_stat.get('quota', {}).get('current_model')}\n",
-                    f"- ⏱️ **5小时滑动用量**：已用 {q_info.get('percent', 0)}% (剩余 {q_info.get('remaining_percent', 100)}%)\n",
-                    f"- ⏰ **重置到期时间**：{q_info.get('reset_countdown_human')} ({q_info.get('reset_expire_time')})\n",
-                    f"- 🛡️ **警戒状态**：安全（当前未触碰 90% 熔断阈值）。"
-                ]
-            elif "熔断" in message or "超额" in message:
-                send_stream_event("TOOL_CALL_START", {"tool": "trigger_circuit_breaker_test", "args": {"threshold": 90.0}})
-                time.sleep(0.4)
-                CIRCUIT_BREAKER["triggered"] = True
-                CIRCUIT_BREAKER["agent"] = "Google Antigravity"
-                CIRCUIT_BREAKER["current_usage"] = 92.5
-                CIRCUIT_BREAKER["message"] = "【演练测试】Antigravity 5小时额度已达 92.5%，触碰 90% 安全警戒线！已进入 Human-in-the-Loop 人机协同审批流程。"
-                CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", CIRCUIT_BREAKER)
-                send_stream_event("TOOL_CALL_END", {"tool": "trigger_circuit_breaker_test", "result": "已成功向全网广播 90% 熔断拦截事件"})
-                answer_parts = [
-                    "🚨 **安全熔断已触发！**\n\n",
-                    "当前检测到 Google Antigravity 5小时额度消耗已达 **92.5%**（超过预设的 **90%** 警戒线）。\n",
-                    "根据 AG-UI 协议规范，后台已触发 **Human-in-the-Loop（人机协同审批）** 机制并弹出紧急决策面板，请在屏幕中央选择处理方案（如切换备用模型或挂起任务）。"
-                ]
-            else:
-                answer_parts = [
-                    f"您好！我是 **Agent Cockpit** 统一指令调度中心。\n\n",
-                    f"您当前调度的智能体是：**{agent_id.upper()}**。\n",
-                    f"已收到您的任务指令：「*{message}*」。\n\n",
-                    "🚀 **执行状态**：所有监控通道与 AG-UI 事件流保持高频同步中。\n",
-                    "您可以直接在控制台命令我执行打卡、查询模型配额、测试 90% 熔断审批等操作！"
-                ]
+                # 智能体工具编排与流式吐字
+                answer_parts = []
+                if "签到" in message or "打卡" in message:
+                    send_stream_event("TOOL_CALL_START", {"tool": "workbuddy_auto_checkin", "args": {}})
+                    time.sleep(0.3)
+                    cfg = load_config()
+                    ck_res = run_workbuddy_checkin(cfg.get("workbuddy", {}), force=True)
+                    update_all_status(notify=True)
+                    send_stream_event("TOOL_CALL_END", {"tool": "workbuddy_auto_checkin", "result": ck_res.get("message")})
+                    rec = ck_res.get("record") or ck_res.get("last_record") or {}
+                    answer_parts = [
+                        "收到您的指令，已为您触发 WorkBuddy 自动化打卡任务。\n",
+                        f"👉 **执行结果**：{ck_res.get('message')}\n",
+                        f"当前打卡连续天数：**{rec.get('consecutive_days', 0)} 天**，最新积分余额已同步更新至驾驶舱！"
+                    ]
+                elif any(k in message for k in ["日报", "体检", "报告", "简报", "概览", "总览"]):
+                    send_stream_event("TOOL_CALL_START", {"tool": "generate_agent_cockpit_report", "args": {"scope": "all_agents"}})
+                    time.sleep(0.3)
+                    cfg = load_config()
+                    ag_s = get_antigravity_status()
+                    cdx_s = get_codex_status()
+                    wb_s = get_workbuddy_status(cfg.get("workbuddy", {}))
+                    volc_s = get_volcengine_plan_status(cfg.get("volcengine", {}))
+                    send_stream_event("TOOL_CALL_END", {"tool": "generate_agent_cockpit_report", "result": "四大智能体状态数据全量汇总完成"})
+                    
+                    ag_pct = ag_s.get("quota", {}).get("five_hour_usage", {}).get("percent", 0)
+                    cdx_rem = cdx_s.get("five_hour_usage", {}).get("remaining_events", 2500)
+                    wb_pts = wb_s.get("total_points", 0)
+                    wb_checked = "✅ 已打卡" if wb_s.get("today_checked_in") else "⏳ 未打卡"
+                    volc_lat = f"{volc_s.get('latency_ms')}ms" if (volc_s.get("healthy") and volc_s.get("latency_ms") is not None) else "待连接"
+                    dual_list = ag_s.get("quota", {}).get("dual_models") or []
+                    gemini_status = dual_list[0].get("status", "充裕") if len(dual_list) > 0 else "充裕"
+                    claude_status = dual_list[1].get("status", "就绪") if len(dual_list) > 1 else "就绪"
+                    with STATUS_LOCK:
+                        cb_threshold = CIRCUIT_BREAKER["threshold"]
+                        cb_triggered = CIRCUIT_BREAKER["triggered"]
+                    if cb_triggered or ag_pct >= cb_threshold:
+                        cb_summary = f"⚠️ 当前已触发或超过 **{cb_threshold}%** 警戒线（Antigravity 5h 已用 {ag_pct}%），建议及时人工介入处置。"
+                    else:
+                        cb_summary = f"当前警戒线为 **{cb_threshold}%**，Antigravity 处于绿色安全水位，无需人工干预。"
+                    
+                    answer_parts = [
+                        "📋 **Agent Cockpit 多智能体实时运行与用量综合体检日报**\n\n",
+                        f"📅 **生成时间**：{time.strftime('%Y-%m-%d %H:%M:%S')} · 运行协议：AG-UI Protocol 1.0\n\n",
+                        "### 📊 核心智能体用量汇总：\n",
+                        f"1. **⚡ Google Antigravity**\n",
+                        f"   - 订阅与数据源：`{ag_s.get('user_tier', 'Google AI Pro')}` ({ag_s.get('data_source', '官方直连')})\n",
+                        f"   - 5小时额度：已用 **{ag_pct}%** (重置倒计时: {ag_s.get('quota', {}).get('five_hour_usage', {}).get('reset_countdown_human', '随时就绪')})\n",
+                        f"   - 双模型池状态：主力 Gemini ({gemini_status}) · 高阶 Claude ({claude_status})\n",
+                        f"   - 缓存省流效益：Prompt 缓存命中率高达 **{ag_s.get('quota', {}).get('tokens', {}).get('cache_savings_ratio', '1.0x')}**\n\n",
+                        f"2. **🧠 OpenAI Codex**\n",
+                        f"   - 运行状态：{'✅ 执行中' if cdx_s.get('running') else '🟢 就绪 (已安装)'}\n",
+                        f"   - 5小时剩余操作数：**{cdx_rem:,}** / 2,500 次 · 周总额度消耗: {cdx_s.get('weekly_usage', {}).get('percent', 0)}%\n",
+                        f"   - 重置到期节点：{cdx_s.get('five_hour_usage', {}).get('reset_expire_time', '随时可用')}\n\n",
+                        f"3. **🤖 WorkBuddy 腾讯全场景**\n",
+                        f"   - 今日签到：**{wb_checked}** · 账户积分余额：**{wb_pts:,}** 积分 (连续 {wb_s.get('consecutive_days', 0)} 天)\n",
+                        f"   - 自动防断签：每日 {wb_s.get('checkin_time', '09:00')} 守护线程已激活\n\n",
+                        f"4. **🌋 火山引擎 Plan API**\n",
+                        f"   - 接口状态：{'🟢 通道畅通' if volc_s.get('healthy') else '⚪ 待配置 Key'} (延迟: {volc_lat})\n",
+                        f"   - 方舟 Coding Plan 滑动限流：已用 {volc_s.get('five_hour_quota', {}).get('percent', 0)}%\n\n",
+                        f"🛡️ **安全熔断评估**：{cb_summary}"
+                    ]
+                elif "codex" in message.lower() or agent_id == "codex":
+                    send_stream_event("TOOL_CALL_START", {"tool": "query_codex_status", "args": {}})
+                    time.sleep(0.2)
+                    cdx_s = get_codex_status()
+                    send_stream_event("TOOL_CALL_END", {"tool": "query_codex_status", "result": f"读取到 {cdx_s.get('total_log_events', 0)} 条本地事件"})
+                    c5h = cdx_s.get("five_hour_usage", {})
+                    cwk = cdx_s.get("weekly_usage", {})
+                    answer_parts = [
+                        "已为您查询 **OpenAI Codex** 本地编程智能体指标：\n\n",
+                        f"- 📁 **安装环境**：{cdx_s.get('home_dir')} (版本: {cdx_s.get('app_version', '1.0')})\n",
+                        f"- ⏱️ **5小时窗口操作数**：已执行 {c5h.get('events_5h', 0)} 次 (剩余 **{c5h.get('remaining_events', 2500):,}** 次)\n",
+                        f"- 📅 **7天周总配额**：已用 {cwk.get('events_week', 0)} 次 ({cwk.get('percent', 0)}%)\n",
+                        f"- ⏰ **下个释放周期**：{c5h.get('reset_countdown_human')} ({c5h.get('reset_expire_time')})\n",
+                        f"- 📊 **历史日志总数**：{cdx_s.get('total_log_events', 0):,} 条"
+                    ]
+                elif any(k in message.lower() for k in ["火山", "方舟", "volcengine"]) or agent_id == "volcengine":
+                    send_stream_event("TOOL_CALL_START", {"tool": "test_volcengine_latency", "args": {}})
+                    time.sleep(0.2)
+                    volc_s = get_volcengine_plan_status(load_config().get("volcengine", {}))
+                    lat_text = f"延迟 {volc_s.get('latency_ms')}ms" if volc_s.get("latency_ms") is not None else volc_s.get("message", "未连接")
+                    send_stream_event("TOOL_CALL_END", {"tool": "test_volcengine_latency", "result": lat_text})
+                    answer_parts = [
+                        "已完成 **火山引擎方舟 Plan API** 通道探测：\n\n",
+                        f"- 📡 **通道连通性**：{'🟢 畅通' if volc_s.get('healthy') else '⚠️ 需检查配置'} ({volc_s.get('message', '')})\n",
+                        f"- ⚡ **网络往返延迟**：{volc_s.get('latency_ms') if volc_s.get('latency_ms') is not None else '-'} ms\n",
+                        f"- 🤖 **绑定预设模型**：`{volc_s.get('model_name')}`\n",
+                        f"- ⏱️ **5小时滑动用量**：{volc_s.get('five_hour_quota', {}).get('human_used', '0%')}\n",
+                        f"- 📅 **周配额消耗**：{volc_s.get('weekly_quota', {}).get('percent', 0)}%"
+                    ]
+                elif "配额" in message or "额度" in message or "用量" in message:
+                    send_stream_event("TOOL_CALL_START", {"tool": "query_official_quota", "args": {"target": agent_id}})
+                    time.sleep(0.2)
+                    ag_stat = get_antigravity_status()
+                    q_info = ag_stat.get("quota", {}).get("five_hour_usage", {})
+                    ag_pct = q_info.get("percent", 0)
+                    send_stream_event("TOOL_CALL_END", {"tool": "query_official_quota", "result": f"{ag_stat.get('data_source', '数据获取成功')}"})
+                    warn_text = "🚨 已触碰 90% 熔断阈值，建议立即处理。" if ag_pct >= 90 else "安全（当前未触碰 90% 熔断阈值）。"
+                    answer_parts = [
+                        f"已为您实时核实 **{ag_stat.get('name')}** 的最新配额状态：\n\n",
+                        f"- 👑 **当前订阅**：{ag_stat.get('user_tier', 'Google AI Pro')} ({ag_stat.get('data_source', '')})\n",
+                        f"- ⚡ **当前主力模型**：{ag_stat.get('quota', {}).get('current_model')}\n",
+                        f"- ⏱️ **5小时滑动用量**：已用 {ag_pct}% (剩余 {q_info.get('remaining_percent', 100)}%)\n",
+                        f"- ⏰ **重置到期时间**：{q_info.get('reset_countdown_human')} ({q_info.get('reset_expire_time', '随时可用')})\n",
+                        f"- 🛡️ **警戒状态**：{warn_text}"
+                    ]
+                elif "熔断" in message or "超额" in message:
+                    send_stream_event("TOOL_CALL_START", {"tool": "trigger_circuit_breaker_test", "args": {"threshold": 90.0}})
+                    time.sleep(0.3)
+                    with STATUS_LOCK:
+                        CIRCUIT_BREAKER["triggered"] = True
+                        CIRCUIT_BREAKER["agent"] = "Google Antigravity"
+                        CIRCUIT_BREAKER["current_usage"] = 92.5
+                        CIRCUIT_BREAKER["message"] = "【演练测试】Antigravity 5小时额度已达 92.5%，触碰 90% 安全警戒线！已进入 Human-in-the-Loop 人机协同审批流程。"
+                        CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                        cb_snapshot = dict(CIRCUIT_BREAKER)
+                    EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", cb_snapshot)
+                    send_stream_event("TOOL_CALL_END", {"tool": "trigger_circuit_breaker_test", "result": "已成功向全网广播 90% 熔断拦截事件"})
+                    answer_parts = [
+                        "🚨 **安全熔断已触发！**\n\n",
+                        "当前检测到 Google Antigravity 5小时额度消耗已达 **92.5%**（超过预设的 **90%** 警戒线）。\n",
+                        "根据 AG-UI 协议规范，后台已触发 **Human-in-the-Loop（人机协同审批）** 机制并弹出紧急决策面板，请在屏幕中央选择处理方案（如切换备用模型或挂起任务）。"
+                    ]
+                else:
+                    answer_parts = [
+                        f"您好！我是 **Agent Cockpit** 统一指令调度中心。\n\n",
+                        f"您当前调度的智能体是：**{agent_id.upper()}**。\n",
+                        f"已收到您的任务指令：「*{message}*」。\n\n",
+                        "🚀 **执行状态**：所有监控通道与 AG-UI 事件流保持高频同步中。\n",
+                        "您可以直接在控制台命令我执行打卡、查询模型配额、测试 90% 熔断审批等操作！"
+                    ]
 
-            for part in answer_parts:
-                for word in part:
-                    send_stream_event("TEXT_MESSAGE_CHUNK", {"delta": word})
-                    time.sleep(0.015)
-                time.sleep(0.05)
+                for part in answer_parts:
+                    step = 3
+                    for i in range(0, len(part), step):
+                        send_stream_event("TEXT_MESSAGE_CHUNK", {"delta": part[i:i + step]})
+                        time.sleep(0.01)
+                    time.sleep(0.02)
 
-            send_stream_event("RUN_FINISHED", {"status": "success"})
+                send_stream_event("RUN_FINISHED", {"status": "success"})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as e:
+                try:
+                    send_stream_event("TEXT_MESSAGE_CHUNK", {"delta": f"\n\n⚠️ 指令执行异常: {e}"})
+                    send_stream_event("RUN_FINISHED", {"status": "error", "error": str(e)})
+                except Exception:
+                    pass
             return
 
         self.send_error(404, "Not Found")

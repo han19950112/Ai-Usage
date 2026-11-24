@@ -87,8 +87,9 @@ def get_codex_status():
     # 3. 读取 SQLite logs 计算 5小时、周额度、重置到期时间
     logs_db = os.path.join(codex_home, "logs_2.sqlite")
     if os.path.exists(logs_db):
+        conn = None
         try:
-            conn = sqlite3.connect(f"file:{logs_db}?mode=ro", uri=True)
+            conn = sqlite3.connect(f"file:{logs_db}?mode=ro", uri=True, timeout=2.0)
             cur = conn.cursor()
             
             cur.execute("SELECT count(*) FROM logs;")
@@ -181,10 +182,14 @@ def get_codex_status():
                 "weekly_remaining": rem_week,
                 "cycle_status": "充足" if rem_5h > 500 else "紧张"
             }
-
-            conn.close()
         except Exception as e:
             status["details"]["db_err"] = str(e)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     return status
 
