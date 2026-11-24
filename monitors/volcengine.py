@@ -25,16 +25,13 @@ def _get_ssl_context(config):
 def _sign_hmac_sha256(key_bytes, msg_str):
     return hmac.new(key_bytes, msg_str.encode("utf-8"), hashlib.sha256).digest()
 
-def _query_volcengine_openapi_usage(ak, sk, ssl_ctx, region="cn-beijing"):
-    """Call Volcengine Ark OpenAPI GetCodingPlanUsage via Signature V4 (HMAC-SHA256)."""
+def _call_volcengine_openapi(ak, sk, action, ssl_ctx, region="cn-beijing", service="ark", version="2024-01-01", body_dict=None):
+    """Call Volcengine OpenAPI via Signature V4 (HMAC-SHA256)."""
     host = "open.volcengineapi.com"
-    service = "ark"
-    action = "GetCodingPlanUsage"
-    version = "2024-01-01"
     method = "POST"
     canonical_uri = "/"
     canonical_querystring = f"Action={action}&Version={version}"
-    body_bytes = b"{}"
+    body_bytes = json.dumps(body_dict if body_dict is not None else {}).encode("utf-8")
     payload_hash = hashlib.sha256(body_bytes).hexdigest()
 
     now_utc = datetime.now(timezone.utc)
@@ -84,6 +81,48 @@ def _query_volcengine_openapi_usage(ak, sk, ssl_ctx, region="cn-beijing"):
     req = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
     with urllib.request.urlopen(req, context=ssl_ctx, timeout=8) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+def _parse_iso_to_local_str(iso_str, now_ts):
+    if not iso_str:
+        return "", ""
+    try:
+        clean = str(iso_str).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean)
+        local_dt = dt.astimezone()
+        date_str = local_dt.strftime("%Y-%m-%d")
+        full_str = local_dt.strftime("%Y-%m-%d %H:%M")
+        days_left = (local_dt.date() - datetime.fromtimestamp(now_ts).date()).days
+        if days_left > 0:
+            human = f"{full_str} (剩余 {days_left} 天)"
+        elif days_left == 0:
+            human = f"{full_str} (今日到期)"
+        else:
+            human = f"{full_str} (已过期 {abs(days_left)} 天)"
+        return date_str, human
+    except Exception:
+        return str(iso_str)[:10], str(iso_str)
+
+def _format_afp_window(win_obj, now_ts):
+    used = float(win_obj.get("Used") or 0.0)
+    quota = float(win_obj.get("Quota") or 1.0) or 1.0
+    pct = round(min(100.0, (used / quota) * 100.0), 2)
+    rts_raw = int(win_obj.get("ResetTime") or 0)
+    rts = rts_raw // 1000 if rts_raw > 10_000_000_000 else rts_raw
+    sec_left = max(0, rts - now_ts) if rts > 0 else 0
+    exp_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rts)) if rts > 0 else "随时可用"
+    cd_str = _format_reset_cd(sec_left) if rts > 0 else "滚动窗口"
+    used_str = f"{used:.2f}".rstrip("0").rstrip(".") if used < 1000 else f"{used:,.1f}"
+    quota_str = f"{int(quota):,}" if quota == int(quota) else f"{quota:,.1f}"
+    return {
+        "used": round(used, 3),
+        "total": int(quota) if quota == int(quota) else quota,
+        "percent": pct,
+        "status": _quota_level(pct),
+        "reset_countdown_seconds": sec_left,
+        "reset_countdown_human": cd_str,
+        "reset_expire_time": exp_str,
+        "human_used": f"{used_str} / {quota_str} AFP"
+    }
 
 def _format_reset_cd(sec_left):
     if sec_left <= 0:
@@ -250,18 +289,56 @@ def get_volcengine_plan_status(config=None):
     status["configured"] = True
     ssl_ctx = _get_ssl_context(config)
 
-    # 0. 若配置了火山引擎 AK/SK，优先调用控制面 OpenAPI GetCodingPlanUsage 获取真实百分比与重置时间戳
+    # 0. 若配置了火山引擎 AK/SK，优先调用控制面 OpenAPI 获取 Agent Plan / Coding Plan 真实用量与订阅到期时间
     if ak and sk:
         oa_start = time.time()
+        # 0a. 尝试拉取订阅到期时间 (ListSubscribeTrade)
         try:
-            oa_resp = _query_volcengine_openapi_usage(ak, sk, ssl_ctx)
+            sub_resp = _call_volcengine_openapi(ak, sk, "ListSubscribeTrade", ssl_ctx)
+            info_list = (sub_resp.get("Result") or {}).get("InfoList") or []
+            active_sub = next((x for x in info_list if str(x.get("Status", "")).lower() == "running"), info_list[0] if info_list else None)
+            if active_sub:
+                exp_date, exp_human = _parse_iso_to_local_str(active_sub.get("EndTime"), now_ts)
+                if exp_date:
+                    status["plan_expire_date"] = exp_date
+                    status["plan_expire_human"] = exp_human
+                biz = active_sub.get("BizInfo") or ""
+                if biz:
+                    status["name"] = f"火山引擎 Agent Plan ({str(biz).capitalize()})"
+        except Exception:
+            pass
+
+        # 0b. 优先调用 Agent Plan 燃料值接口 (GetAgentPlanAFPUsage)
+        try:
+            afp_resp = _call_volcengine_openapi(ak, sk, "GetAgentPlanAFPUsage", ssl_ctx)
+            latency = int((time.time() - oa_start) * 1000)
+            res = afp_resp.get("Result") or {}
+            if res.get("AFPFiveHour") or res.get("AFPWeekly") or res.get("AFPMonthly"):
+                status["healthy"] = True
+                status["latency_ms"] = latency
+                plan_type = res.get("PlanType") or "Agent Plan"
+                status["mode"] = f"OpenAPI ({plan_type} 真实燃料值)"
+                status["message"] = f"OpenAPI 真实同步成功 · {plan_type} ({latency}ms)"
+                if res.get("AFPFiveHour"):
+                    status["five_hour_quota"] = _format_afp_window(res["AFPFiveHour"], now_ts)
+                if res.get("AFPWeekly"):
+                    status["weekly_quota"] = _format_afp_window(res["AFPWeekly"], now_ts)
+                if res.get("AFPMonthly"):
+                    status["monthly_quota"] = _format_afp_window(res["AFPMonthly"], now_ts)
+                return status
+        except Exception:
+            pass
+
+        # 0c. 回退调用 Coding Plan 接口 (GetCodingPlanUsage)
+        try:
+            oa_resp = _call_volcengine_openapi(ak, sk, "GetCodingPlanUsage", ssl_ctx)
             latency = int((time.time() - oa_start) * 1000)
             result = oa_resp.get("Result") or oa_resp
             quota_list = result.get("QuotaUsage") or []
             if quota_list:
                 status["healthy"] = True
                 status["latency_ms"] = latency
-                status["mode"] = "OpenAPI (AK/SK 真实配额)"
+                status["mode"] = "OpenAPI (Coding Plan 真实配额)"
                 plan_st = result.get("Status") or "Running"
                 status["message"] = f"OpenAPI 真实同步成功 · 套餐状态: {plan_st} ({latency}ms)"
                 for item in quota_list:
