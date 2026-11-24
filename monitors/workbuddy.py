@@ -5,6 +5,7 @@ WorkBuddy Agent Monitor & Auto-Checkin Engine
 Handles WorkBuddy status detection, automated daily check-in (Buddy 加油站), and point tracking.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -48,7 +49,7 @@ def _fetch_workbuddy_live_data(config):
     if (not token and not cookie) or config.get("demo_mode", False) or token == "demo" or cookie == "demo":
         return None
 
-    cache_key = (token[:16], cookie[:32])
+    cache_key = hashlib.sha256(f"{token}|{cookie}".encode("utf-8")).hexdigest()
     now_ts = time.time()
     with _WB_CACHE_LOCK:
         if _WB_LIVE_CACHE["key"] == cache_key and (now_ts - _WB_LIVE_CACHE["ts"]) < 60.0:
@@ -77,6 +78,12 @@ def _fetch_workbuddy_live_data(config):
                 result["used_credits"] = round(used_cap, 2)
                 result["total_credits_cap"] = round(total_cap, 2)
                 result["used_percent"] = round(min(100.0, (used_cap / total_cap) * 100.0), 1)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            result["auth_expired"] = True
+            result["summary_err"] = "登录态已失效 (HTTP 401)，请重新登录后更新 Cookie"
+        else:
+            result["summary_err"] = f"HTTP {e.code}"
     except Exception as e:
         result["summary_err"] = str(e)
 
@@ -339,6 +346,8 @@ def get_workbuddy_status(config=None):
     # 4. Merge live www.workbuddy.cn data when authenticated
     live = _fetch_workbuddy_live_data(config)
     if live:
+        if live.get("auth_expired"):
+            status["last_checkin_message"] = live.get("summary_err", "登录态已失效，请重新更新 Cookie")
         if "total_points" in live:
             status["total_points"] = live["total_points"]
         if live.get("checkin_streak_days", 0) > 0:
