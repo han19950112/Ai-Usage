@@ -31,6 +31,7 @@ from monitors.codex import get_codex_status
 from monitors.volcengine import get_volcengine_plan_status
 from monitors.workbuddy import get_workbuddy_status, run_workbuddy_checkin
 import mission_control as mc
+import agent_runner as runner
 
 # Storage configuration
 USER_DATA_DIR = os.path.expanduser("~/.agent-cockpit")
@@ -445,6 +446,23 @@ class CockpitHandler(BaseHTTPRequestHandler):
             self.send_json(mc.get_usage_trends())
             return
 
+        if path == "/api/agents/engines":
+            self.send_json(runner.get_available_engines(load_config()))
+            return
+
+        if path == "/api/agents/runs":
+            self.send_json({"runs": runner.list_runs(), "engines": runner.get_available_engines(load_config())})
+            return
+
+        if path.startswith("/api/agents/runs/"):
+            rid = path.rsplit("/", 1)[-1]
+            r = runner.get_run(rid)
+            if r:
+                self.send_json(r)
+            else:
+                self.send_json({"error": "Run not found"}, code=404)
+            return
+
         if path.startswith("/api/mc/approvals/"):
             appr_id_str = path.rsplit("/", 1)[-1]
             if appr_id_str.isdigit():
@@ -681,6 +699,46 @@ class CockpitHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": False, "message": str(e)}, code=400)
             return
 
+        # 4.6 Unified Multi-Agent Dispatch & Execution APIs (coder/agentapi style)
+        if path == "/api/agents/dispatch":
+            try:
+                cfg = load_config()
+                def _on_run_update():
+                    snap = mc.get_snapshot()
+                    with STATUS_LOCK:
+                        LATEST_STATUS["mission_control"] = snap
+                    EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                    EVENT_HUB.broadcast_event("AGENT_RUN_UPDATED", {"runs": runner.list_runs()})
+
+                run_rec = runner.dispatch_task(
+                    agent=req_json.get("agent", "antigravity"),
+                    prompt=req_json.get("prompt", ""),
+                    title=req_json.get("title"),
+                    cwd=req_json.get("cwd"),
+                    priority=req_json.get("priority", "normal"),
+                    config=cfg,
+                    on_update=_on_run_update,
+                    on_notify=lambda t, m: send_macos_notification(t, m, subtitle="多 Agent 调度执行"),
+                )
+                self.send_json({"success": True, "run": run_rec})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/agents/runs/cancel":
+            try:
+                def _on_cancel_update():
+                    snap = mc.get_snapshot()
+                    with STATUS_LOCK:
+                        LATEST_STATUS["mission_control"] = snap
+                    EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                    EVENT_HUB.broadcast_event("AGENT_RUN_UPDATED", {"runs": runner.list_runs()})
+                ok = runner.cancel_run(req_json.get("id", ""), on_update=_on_cancel_update)
+                self.send_json({"success": ok, "message": "已中止运行任务" if ok else "任务未在运行或不存在"})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
         # 5. AG-UI 智能体流式对话引擎 (Agent Chat & Command Streaming)
         if path == "/api/agent/chat":
             agent_id = str(req_json.get("agent", "antigravity"))
@@ -829,13 +887,21 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         "根据 AG-UI 协议规范，后台已触发 **Human-in-the-Loop（人机协同审批）** 机制并弹出紧急决策面板，请在屏幕中央选择处理方案（如切换备用模型或挂起任务）。"
                     ]
                 else:
-                    answer_parts = [
-                        f"您好！我是 **Agent Cockpit** 统一指令调度中心。\n\n",
-                        f"您当前调度的智能体是：**{agent_id.upper()}**。\n",
-                        f"已收到您的任务指令：「*{message}*」。\n\n",
-                        "🚀 **执行状态**：所有监控通道与 AG-UI 事件流保持高频同步中。\n",
-                        "您可以直接在控制台命令我执行打卡、查询模型配额、测试 90% 熔断审批等操作！"
-                    ]
+                    # 真实调用选定的 Agent 进行流式对话 (Antigravity agy CLI / 火山引擎方舟 API / Codex / WorkBuddy)
+                    send_stream_event("TOOL_CALL_START", {"tool": f"invoke_{agent_id}_agent", "args": {"prompt": message[:80]}})
+                    cfg = load_config()
+                    streamed_chars = [0]
+                    try:
+                        def _emit_delta(ch):
+                            streamed_chars[0] += len(ch)
+                            send_stream_event("TEXT_MESSAGE_CHUNK", {"delta": ch})
+
+                        runner.stream_direct_chat(agent_id, message, cfg, _emit_delta)
+                        send_stream_event("TOOL_CALL_END", {"tool": f"invoke_{agent_id}_agent", "result": f"已真实调用 {agent_id.upper()}，返回 {streamed_chars[0]} 字符"})
+                        answer_parts = []
+                    except Exception as run_err:
+                        send_stream_event("TOOL_CALL_END", {"tool": f"invoke_{agent_id}_agent", "result": f"调用失败: {run_err}"})
+                        answer_parts = [f"⚠️ 调用 **{agent_id.upper()}** 失败：{run_err}"]
 
                 for part in answer_parts:
                     step = 3

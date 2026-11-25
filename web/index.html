@@ -731,27 +731,35 @@
             </div>
           </div>
 
-          <!-- Multi-Agent Task Board -->
+          <!-- Multi-Agent Task Board & Live Dispatcher -->
           <div class="mc-panel" id="mcPanelTasks">
             <div class="mc-panel-head">
-              <h3>📋 多 Agent 任务看板 (Task Board)</h3>
+              <h3>🚀 真实多 Agent 派发与任务看板</h3>
+              <span id="mcEnginesBadge" style="font-size:11px; color:var(--text-muted);">检测执行引擎中...</span>
             </div>
             <div class="mc-form-row">
-              <input type="text" id="mcNewTitle" class="mc-input" style="flex:2; min-width:180px;" placeholder="输入新任务标题（如：修复登录模块鉴权 Bug）...">
+              <input type="text" id="mcNewTitle" class="mc-input" style="flex:2; min-width:200px;" placeholder="输入要派发给 Agent 执行的真实指令（或任务标题）...">
               <select id="mcNewAgent" class="mc-input">
-                <option value="antigravity">⚡ Antigravity</option>
-                <option value="codex">🧠 Codex</option>
-                <option value="workbuddy">🤖 WorkBuddy</option>
-                <option value="volcengine">🌋 火山引擎</option>
+                <option value="volcengine">🌋 火山引擎 Ark (实时流)</option>
+                <option value="antigravity">⚡ Antigravity (agy CLI)</option>
+                <option value="workbuddy">🤖 WorkBuddy (codebuddy)</option>
+                <option value="codex">🧠 Codex (codex CLI)</option>
               </select>
               <select id="mcNewPriority" class="mc-input">
-                <option value="normal">普通优先级</option>
-                <option value="high">高优先级</option>
+                <option value="normal">普通</option>
+                <option value="high">高优</option>
                 <option value="urgent">紧急</option>
-                <option value="low">低优先级</option>
               </select>
-              <button class="btn btn-primary" onclick="createMcTask()">➕ 派发任务</button>
             </div>
+            <div class="mc-form-row" style="margin-top:-4px;">
+              <input type="text" id="mcNewCwd" class="mc-input" style="flex:1; min-width:180px; font-family:ui-monospace,monospace; font-size:11.5px;" placeholder="工作目录 (可选，默认当前项目目录)">
+              <button class="btn btn-primary" onclick="dispatchRealAgentTask()">🚀 立即派发执行</button>
+              <button class="btn" onclick="createMcTask()">📝 仅记录卡片</button>
+            </div>
+
+            <!-- Live Dispatched Runs (Real-time Output & Cancel) -->
+            <div id="mcLiveRunsBox" style="margin-bottom:14px;"></div>
+
             <div class="mc-filter-bar" id="mcFilterBar">
               <button class="mc-filter-pill active" onclick="setMcFilter('all', this)">全部</button>
               <button class="mc-filter-pill" onclick="setMcFilter('running', this)">⚡ 运行中</button>
@@ -792,7 +800,13 @@
               <div style="font-size:12px; color:var(--text-muted); margin-top:8px; line-height:1.5;">
                 任意 Codex / Claude Code Hook 或本地脚本均可调用以下接口上报任务与高危审批：
               </div>
-              <pre class="mc-code-pre">curl -X POST http://127.0.0.1:5999/api/mc/approvals \
+              <pre class="mc-code-pre"># 1. 统一 API 派发真实 Agent 任务
+curl -X POST http://127.0.0.1:5999/api/agents/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"agent":"antigravity","prompt":"总结当前目录的 git log 最近5条"}'
+
+# 2. 提交高危人工审批请求
+curl -X POST http://127.0.0.1:5999/api/mc/approvals \
   -H "Content-Type: application/json" \
   -d '{"agent":"codex","title":"执行生产部署","risk_level":"high","action_preview":"git push origin main"}'</pre>
             </details>
@@ -1432,13 +1446,86 @@
 
     async function fetchMissionControl() {
       try {
-        const resp = await fetch('/api/mc/snapshot');
-        if (!resp.ok) return;
-        const snap = await resp.json();
-        renderMissionControl(snap);
+        const [mcResp, runsResp] = await Promise.all([
+          fetch('/api/mc/snapshot'),
+          fetch('/api/agents/runs')
+        ]);
+        if (mcResp.ok) renderMissionControl(await mcResp.json());
+        if (runsResp.ok) renderLiveRuns(await runsResp.json());
       } catch (err) {
         console.error('Fetch MC error:', err);
       }
+    }
+
+    function renderLiveRuns(payload) {
+      const engines = payload.engines || {};
+      const engEl = document.getElementById('mcEnginesBadge');
+      if (engEl && Object.keys(engines).length > 0) {
+        const readyList = Object.entries(engines).filter(([, v]) => v && v.ready).map(([k]) => k);
+        engEl.innerText = '就绪引擎: ' + (readyList.length ? readyList.join(' / ') : '无');
+      }
+      const runs = payload.runs || [];
+      const box = document.getElementById('mcLiveRunsBox');
+      if (!box) return;
+      if (runs.length === 0) {
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = `<div style="font-size:11.5px; color:var(--accent); font-weight:600; margin-bottom:6px;">⚡ 后台实时执行任务 (${runs.length})：</div>` + runs.slice(0, 6).map(r => {
+        const isRun = r.status === 'running';
+        return `
+          <div class="mc-card-item" style="border-color:${isRun ? 'rgba(63,185,80,0.45)' : 'var(--card-border)'};">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="highlight-pill">${mcAgentLabel(r.agent)}</span>
+                <strong style="font-size:12.5px;">${escapeHtml(r.title)}</strong>
+                ${r.pid ? `<span style="font-size:11px; color:var(--text-muted); font-family:ui-monospace,monospace;">PID ${r.pid}</span>` : ''}
+              </div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                ${mcStatusBadge(r.status === 'cancelled' ? 'failed' : r.status)}
+                ${isRun ? `<button class="btn btn-danger" style="padding:3px 8px; font-size:11px;" onclick="cancelAgentRun('${escapeHtml(r.id)}')">🛑 中止</button>` : ''}
+              </div>
+            </div>
+            <details ${isRun ? 'open' : ''}>
+              <summary style="cursor:pointer; font-size:11.5px; color:var(--text-muted); margin-bottom:4px;">查看实时执行输出 (${escapeHtml(r.started_at)}${r.finished_at ? ' → ' + escapeHtml(r.finished_at) : ''})</summary>
+              <pre class="mc-code-pre" style="max-height:200px; overflow-y:auto;">${escapeHtml(r.output || '')}</pre>
+            </details>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function dispatchRealAgentTask() {
+      const titleEl = document.getElementById('mcNewTitle');
+      const prompt = titleEl.value.trim();
+      if (!prompt) { showToast('请输入要派发给 Agent 的任务指令', '⚠️'); return; }
+      const agent = document.getElementById('mcNewAgent').value;
+      const priority = document.getElementById('mcNewPriority').value;
+      const cwd = (document.getElementById('mcNewCwd')?.value || '').trim();
+      const resp = await fetch('/api/agents/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent, prompt, priority, cwd })
+      });
+      const res = await resp.json();
+      if (res.success) {
+        titleEl.value = '';
+        showToast(`已派发给 ${agent.toUpperCase()} 后台真实执行！`, '🚀');
+        fetchMissionControl();
+      } else {
+        showToast(res.message || '派发失败', '⚠️');
+      }
+    }
+
+    async function cancelAgentRun(runId) {
+      const resp = await fetch('/api/agents/runs/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: runId })
+      });
+      const res = await resp.json();
+      showToast(res.message || '已中止', '🛑');
+      fetchMissionControl();
     }
 
     function setMcFilter(filter, btnEl) {
@@ -2251,6 +2338,14 @@
         try {
           const snap = JSON.parse(e.data);
           renderMissionControl(snap);
+        } catch (err) {}
+      });
+
+      // 7. 后台 Agent 实时执行日志流更新
+      eventSource.addEventListener('AGENT_RUN_UPDATED', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          renderLiveRuns(payload);
         } catch (err) {}
       });
 
