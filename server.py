@@ -27,7 +27,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
 from monitors.antigravity import get_antigravity_status
-from monitors.codex import get_codex_status
+from monitors.codex import get_codex_status, consume_codex_reset_credit
 from monitors.volcengine import get_volcengine_plan_status
 from monitors.workbuddy import get_workbuddy_status, run_workbuddy_checkin
 import mission_control as mc
@@ -518,6 +518,15 @@ class CockpitHandler(BaseHTTPRequestHandler):
             wb_cfg = cfg.get("workbuddy", {})
             force = req_json.get("force", True)
             res = run_workbuddy_checkin(wb_cfg, force=force)
+            update_all_status(notify=True)
+            self.send_json(res)
+            return
+
+        # 1.5 使用 Codex 官方限额完全重置次数
+        if path == "/api/codex/reset-credit/consume":
+            res = consume_codex_reset_credit()
+            if res.get("success"):
+                send_macos_notification("🔄 Codex 额度已完全重置", res.get("message", ""))
             update_all_status(notify=True)
             self.send_json(res)
             return

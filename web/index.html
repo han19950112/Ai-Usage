@@ -568,6 +568,17 @@
               <span style="font-family:ui-monospace; font-size:11px; color:var(--text);" id="cdxWkExpire">-</span>
             </div>
           </div>
+
+          <!-- Official Codex Rate-Limit Reset Credits (使用限额重置) -->
+          <div id="cdxResetCreditsBox" style="margin-top: 10px; background: rgba(13, 17, 23, 0.7); border: 1px solid rgba(88, 166, 255, 0.25); border-radius: 8px; padding: 10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+              <span style="font-size: 12px; font-weight: 600; color: var(--text);">⚡ 使用限额重置（每周 + 5 小时）</span>
+              <span class="highlight-pill" id="cdxResetCreditCount" style="color:var(--green); border-color:rgba(63,185,80,0.35);">可用 0</span>
+            </div>
+            <div id="cdxResetCreditList" style="display:flex; flex-direction:column; gap:6px;">
+              <div style="font-size:11px; color:var(--text-muted);">同步官方重置额度中...</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1231,6 +1242,35 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       document.getElementById('cdxRemText').innerText = `5h剩余: ${rem5hPct} · 周剩余: ${remWkPct}${planSuffix}`;
       document.getElementById('cdx5hExpire').innerText = cdx5h.reset_expire_time || '随时就绪';
       document.getElementById('cdxWkExpire').innerText = cdxWk.reset_expire_time || '自然周一 00:00 UTC';
+
+      // 2.4 Codex 官方限额重置次数 (Rate-Limit Reset Credits)
+      const rc = cdx.reset_credits || { available_count: 0, items: [] };
+      const rcCount = rc.available_count || 0;
+      const rcCountEl = document.getElementById('cdxResetCreditCount');
+      if (rcCountEl) rcCountEl.innerText = `可用 ${rcCount}`;
+      const rcListEl = document.getElementById('cdxResetCreditList');
+      if (rcListEl) {
+        if (rc.items && rc.items.length > 0) {
+          rcListEl.innerHTML = rc.items.map(item => `
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:rgba(22,27,34,0.8); border:1px solid var(--card-border); border-radius:6px; padding:7px 9px;">
+              <div>
+                <div style="font-size:12px; font-weight:600; color:var(--text);">${escapeHtml(item.title)}</div>
+                <div style="font-size:11px; color:var(--text-muted);">将于 ${escapeHtml(item.expires_at)} 到期</div>
+              </div>
+              <button class="btn" style="padding:4px 9px; font-size:11px;" onclick="consumeCodexResetCredit()">🔄 使用重置额度</button>
+            </div>
+          `).join('');
+        } else if (rcCount > 0) {
+          rcListEl.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:12px; color:var(--text);">完全重置（每周 + 5 小时）× ${rcCount}</span>
+              <button class="btn" style="padding:4px 9px; font-size:11px;" onclick="consumeCodexResetCredit()">🔄 使用重置额度</button>
+            </div>
+          `;
+        } else {
+          rcListEl.innerHTML = '<div style="font-size:11px; color:var(--text-muted);">当前暂无可用重置次数</div>';
+        }
+      }
 
       // ================= 3. WorkBuddy =================
       const wb = data.workbuddy || {};
@@ -2165,6 +2205,25 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
     // =========================================================================
     // 基础业务交互
     // =========================================================================
+    async function consumeCodexResetCredit() {
+      if (!confirm('确认消耗 1 次 Codex「完全重置（每周 + 5 小时）」额度吗？\n（使用后将立即恢复 5 小时与每周配额至 100%）')) {
+        return;
+      }
+      try {
+        showToast('正在请求 OpenAI 官方重置 Codex 额度...', '🔄');
+        const resp = await fetch('/api/codex/reset-credit/consume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        const res = await resp.json();
+        showToast(res.message || '操作已处理', res.success ? '✅' : 'ℹ️');
+        fetchStatus();
+      } catch (e) {
+        alert('重置请求失败: ' + e);
+      }
+    }
+
     async function triggerCheckin() {
       const btn = document.getElementById('btnCheckin');
       btn.innerText = '⏳ 打卡中...';
