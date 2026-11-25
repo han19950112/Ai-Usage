@@ -7,334 +7,402 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛸</text></svg>">
   <style>
     :root {
-      --bg: #0d1117;
-      --card-bg: rgba(22, 27, 34, 0.85);
-      --card-border: rgba(240, 246, 252, 0.1);
-      --text: #f0f6fc;
-      --text-muted: #8b949e;
-      --accent: #58a6ff;
-      --green: #3fb950;
-      --yellow: #d29922;
-      --red: #f85149;
-      --purple: #bc8cff;
-      --radius: 14px;
+      color-scheme: dark;
+      --bg: #0b0d12;
+      --bg-subtle: #10141c;
+      --sidebar-bg: rgba(13, 16, 23, 0.92);
+      --card-bg: rgba(18, 22, 31, 0.84);
+      --surface-inset: rgba(10, 13, 19, 0.68);
+      --input-bg: #0d1118;
+      --card-border: rgba(255, 255, 255, 0.075);
+      --card-border-hover: rgba(255, 255, 255, 0.15);
+      --text: #eef2f7;
+      --text-muted: #86909f;
+      --accent: #4f9cf9;
+      --accent-soft: rgba(79, 156, 249, 0.13);
+      --green: #34c759;
+      --yellow: #e5a00d;
+      --red: #f25555;
+      --purple: #a78bfa;
+      --btn-bg: rgba(255, 255, 255, 0.055);
+      --btn-hover: rgba(255, 255, 255, 0.1);
+      --modal-bg: #151922;
+      --drawer-bg: rgba(16, 20, 28, 0.96);
+      --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.28);
+      --shadow-float: 0 20px 60px rgba(0, 0, 0, 0.62);
+      --radius: 13px;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
-    body { background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; }
+    [data-theme="light"] {
+      color-scheme: light;
+      --bg: #f3f5f9;
+      --bg-subtle: #eaeef4;
+      --sidebar-bg: rgba(248, 250, 253, 0.88);
+      --card-bg: rgba(255, 255, 255, 0.92);
+      --surface-inset: rgba(241, 245, 249, 0.9);
+      --input-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.085);
+      --card-border-hover: rgba(15, 23, 42, 0.18);
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --accent: #2563eb;
+      --accent-soft: rgba(37, 99, 235, 0.1);
+      --green: #16a34a;
+      --yellow: #ca8a04;
+      --red: #dc2626;
+      --purple: #7c3aed;
+      --btn-bg: rgba(15, 23, 42, 0.045);
+      --btn-hover: rgba(15, 23, 42, 0.09);
+      --modal-bg: #ffffff;
+      --drawer-bg: rgba(255, 255, 255, 0.96);
+      --shadow-card: 0 4px 20px rgba(15, 23, 42, 0.055);
+      --shadow-float: 0 24px 60px rgba(15, 23, 42, 0.18);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+    body { background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; transition: background-color 0.2s ease, color 0.2s ease; }
+
+    .ico { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .brand-emblem {
+      width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      border: 1px solid var(--card-border);
+    }
+    .emblem-ag { background: linear-gradient(135deg, rgba(79,156,249,0.18), rgba(99,102,241,0.14)); color: var(--accent); }
+    .emblem-cdx { background: linear-gradient(135deg, rgba(52,199,89,0.16), rgba(16,185,129,0.12)); color: var(--green); }
+    .emblem-wb { background: linear-gradient(135deg, rgba(14,165,233,0.16), rgba(56,189,248,0.12)); color: #0ea5e9; }
+    .emblem-volc { background: linear-gradient(135deg, rgba(229,160,13,0.16), rgba(167,139,250,0.14)); color: var(--yellow); }
 
     /* Left Sidebar Layout */
     .sidebar {
-      width: 244px; flex-shrink: 0; height: 100vh; background: rgba(11, 15, 22, 0.96);
+      width: 232px; flex-shrink: 0; height: 100vh; background: var(--sidebar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border-right: 1px solid var(--card-border); display: flex; flex-direction: column;
-      justify-content: space-between; padding: 34px 12px 16px; z-index: 120;
-      transition: transform 0.25s ease;
+      justify-content: space-between; padding: 30px 12px 14px; z-index: 120;
+      transition: transform 0.25s ease, background-color 0.2s ease;
     }
-    .sidebar-top { overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
-    .sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; border-bottom: 1px solid var(--card-border); }
-    .sidebar-brand .brand-icon { font-size: 22px; width: 38px; height: 38px; flex-shrink: 0; }
-    .sidebar-brand h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
-    .sidebar-brand p { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .sidebar-top { overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+    .sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 13px; border-bottom: 1px solid var(--card-border); }
+    .sidebar-brand .brand-icon { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(79,156,249,0.28); display: flex; align-items: center; justify-content: center; }
+    .sidebar-brand h1 { font-size: 14px; font-weight: 650; letter-spacing: -0.25px; }
+    .sidebar-brand p { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
 
-    .nav-group { display: flex; flex-direction: column; gap: 3px; }
-    .nav-group-label { font-size: 10.5px; font-weight: 600; color: #6e7681; text-transform: uppercase; letter-spacing: 0.6px; padding: 0 10px 6px; }
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+    .nav-group-label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); opacity: 0.72; text-transform: uppercase; letter-spacing: 0.6px; padding: 0 10px 5px; }
     .nav-item {
       width: 100%; background: transparent; border: 1px solid transparent; color: var(--text-muted);
-      padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer;
+      padding: 7px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 500; cursor: pointer;
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      transition: all 0.16s ease; text-align: left;
+      transition: all 0.14s ease; text-align: left;
     }
-    .nav-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
+    .nav-item:hover { background: var(--btn-bg); color: var(--text); }
     .nav-item.active {
-      background: rgba(88, 166, 255, 0.14); color: #fff;
-      border-color: rgba(88, 166, 255, 0.28); font-weight: 600;
+      background: var(--accent-soft); color: var(--text);
+      border-color: rgba(79, 156, 249, 0.24); font-weight: 600;
     }
+    .nav-item.active .ico { color: var(--accent); }
     .nav-item-left { display: flex; align-items: center; gap: 9px; }
-    .nav-kbd { background: rgba(255, 255, 255, 0.1); color: var(--text-muted); padding: 1px 5px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, monospace; }
-    .nav-count { background: rgba(88, 166, 255, 0.18); color: var(--accent); font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 10px; font-family: ui-monospace, monospace; display: none; }
+    .nav-kbd { background: var(--btn-bg); border: 1px solid var(--card-border); color: var(--text-muted); padding: 1px 5px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, monospace; }
+    .nav-count { background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 10px; font-family: ui-monospace, monospace; display: none; }
     .nav-count.show { display: inline-block; }
 
-    .sidebar-footer { padding-top: 12px; border-top: 1px solid var(--card-border); display: flex; flex-direction: column; gap: 8px; }
-    .sidebar-status-row { display: flex; align-items: center; justify-content: space-between; padding: 0 6px; }
+    .sidebar-footer { padding-top: 10px; border-top: 1px solid var(--card-border); display: flex; flex-direction: column; gap: 8px; }
+    .sidebar-status-row { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
 
     /* Main Workspace */
-    .main-workspace { flex: 1; height: 100vh; overflow-y: auto; padding: 24px 28px 36px; min-width: 0; }
-    .container { max-width: 1320px; margin: 0 auto; transition: margin-right 0.3s ease; }
+    .main-workspace { flex: 1; height: 100vh; overflow-y: auto; padding: 20px 26px 28px; min-width: 0; }
+    .container { max-width: 1340px; margin: 0 auto; transition: margin-right 0.3s ease; }
     .mobile-menu-btn { display: none; }
 
     /* Header */
-    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; padding-bottom: 14px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 12px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 12px; }
     .brand { display: flex; align-items: center; gap: 12px; }
-    .brand-icon { font-size: 28px; background: rgba(88, 166, 255, 0.15); border: 1px solid rgba(88, 166, 255, 0.3); border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
-    .brand h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
-    .brand p { font-size: 13px; color: var(--text-muted); }
-    .header-actions { display: flex; align-items: center; gap: 10px; }
-    .btn { background: #21262d; color: var(--text); border: 1px solid var(--card-border); padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
-    .btn:hover { background: #30363d; border-color: #8b949e; }
-    .btn-primary { background: #238636; border-color: rgba(240, 246, 252, 0.1); color: #fff; }
-    .btn-primary:hover { background: #2ea043; }
-    .btn-chat { background: linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(188, 140, 255, 0.15)); border: 1px solid rgba(88, 166, 255, 0.35); color: #fff; font-weight: 600; }
-    .btn-chat:hover { background: linear-gradient(135deg, rgba(88, 166, 255, 0.25), rgba(188, 140, 255, 0.25)); border-color: var(--accent); }
-    .btn-danger { background: rgba(248, 81, 73, 0.15); border-color: rgba(248, 81, 73, 0.3); color: var(--red); }
-    .btn-danger:hover { background: rgba(248, 81, 73, 0.25); }
-    .server-time { font-size: 12px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
+    .brand h1 { font-size: 18px; font-weight: 650; letter-spacing: -0.4px; }
+    .brand p { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .header-actions { display: flex; align-items: center; gap: 8px; }
 
-    /* Grid layout */
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; margin-bottom: 24px; }
+    .cmd-trigger {
+      background: var(--surface-inset); border: 1px solid var(--card-border); color: var(--text-muted);
+      padding: 6px 11px; border-radius: 8px; font-size: 12.5px; cursor: pointer; display: inline-flex;
+      align-items: center; gap: 10px; min-width: 220px; justify-content: space-between; transition: all 0.16s ease;
+    }
+    .cmd-trigger:hover { border-color: var(--card-border-hover); color: var(--text); background: var(--btn-bg); }
 
-    /* Cards */
-    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 20px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2); display: flex; flex-direction: column; justify-content: space-between; }
-    .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-    .card-title { display: flex; align-items: center; gap: 10px; }
-    .card-icon { font-size: 22px; }
-    .card-title h2 { font-size: 16px; font-weight: 600; }
-    .badge { font-size: 12px; padding: 3px 8px; border-radius: 20px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
-    .badge-running { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
-    .badge-stopped { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); border: 1px solid rgba(139, 148, 158, 0.3); }
-    .badge-warning { background: rgba(210, 153, 34, 0.15); color: var(--yellow); border: 1px solid rgba(210, 153, 34, 0.3); }
-    .badge-critical { background: rgba(248, 81, 73, 0.15); color: var(--red); border: 1px solid rgba(248, 81, 73, 0.3); }
+    .btn { background: var(--btn-bg); color: var(--text); border: 1px solid var(--card-border); padding: 6px 12px; border-radius: 8px; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: all 0.16s ease; display: inline-flex; align-items: center; gap: 6px; }
+    .btn:hover { background: var(--btn-hover); border-color: var(--card-border-hover); }
+    .btn-primary { background: #1f883d; border-color: rgba(255, 255, 255, 0.12); color: #fff; }
+    .btn-primary:hover { background: #269f48; color: #fff; }
+    .btn-chat { background: var(--accent-soft); border: 1px solid rgba(79, 156, 249, 0.28); color: var(--accent); font-weight: 600; }
+    .btn-chat:hover { background: rgba(79, 156, 249, 0.2); border-color: var(--accent); }
+    .btn-danger { background: rgba(242, 85, 85, 0.11); border-color: rgba(242, 85, 85, 0.28); color: var(--red); }
+    .btn-danger:hover { background: rgba(242, 85, 85, 0.2); }
+    .server-time { font-size: 11.5px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
+
+    /* Compact Aligned 2x2 Dashboard Grid */
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; align-items: stretch; }
+
+    /* Refined Instrument Cards */
+    .card {
+      background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius);
+      padding: 16px 18px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      box-shadow: var(--shadow-card); display: flex; flex-direction: column; justify-content: space-between;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+    .card:hover { border-color: var(--card-border-hover); }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; }
+    .card-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .card-title h2 { font-size: 14.5px; font-weight: 650; letter-spacing: -0.2px; line-height: 1.2; }
+    .card-subtitle { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Hero Metric Strip inside Card */
+    .card-hero {
+      display: flex; justify-content: space-between; align-items: flex-end; gap: 12px;
+      padding: 10px 12px; border-radius: 10px; background: var(--surface-inset);
+      border: 1px solid var(--card-border); margin-bottom: 10px;
+    }
+    .hero-num { font-size: 26px; font-weight: 700; letter-spacing: -0.8px; line-height: 1; font-family: ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; color: var(--text); }
+    .hero-caption { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .hero-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+
+    .badge { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .badge-running { background: rgba(52, 199, 89, 0.13); color: var(--green); border: 1px solid rgba(52, 199, 89, 0.26); }
+    .badge-stopped { background: var(--btn-bg); color: var(--text-muted); border: 1px solid var(--card-border); }
+    .badge-warning { background: rgba(229, 160, 13, 0.14); color: var(--yellow); border: 1px solid rgba(229, 160, 13, 0.28); }
+    .badge-critical { background: rgba(242, 85, 85, 0.14); color: var(--red); border: 1px solid rgba(242, 85, 85, 0.3); }
     .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-    .dot-pulse { animation: pulse 1.8s infinite; }
-    @keyframes pulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.3); } 100% { opacity: 1; transform: scale(1); } }
+    .dot-pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.25); } }
+
+    /* Compact Progress Bars */
+    .progress-stack { display: flex; flex-direction: column; gap: 7px; }
+    .progress-box { background: var(--surface-inset); border: 1px solid var(--card-border); padding: 7px 10px; border-radius: 8px; }
+    .progress-header { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; margin-bottom: 5px; color: var(--text-muted); gap: 8px; }
+    .progress-header strong { color: var(--text); font-weight: 550; }
+    .progress-bar-bg { height: 6px; background: rgba(134, 144, 159, 0.18); border-radius: 999px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; border-radius: 999px; transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease; }
+    .fill-green { background: linear-gradient(90deg, #16a34a, #34c759); }
+    .fill-yellow { background: linear-gradient(90deg, #ca8a04, #eab308); }
+    .fill-red { background: linear-gradient(90deg, #dc2626, #f25555); }
+
+    /* Collapsible Secondary Details Drawer inside Card */
+    details.card-more { margin-top: 10px; border-top: 1px solid var(--card-border); padding-top: 8px; }
+    details.card-more > summary {
+      list-style: none; cursor: pointer; font-size: 11.5px; color: var(--text-muted);
+      display: flex; justify-content: space-between; align-items: center; user-select: none;
+      transition: color 0.15s;
+    }
+    details.card-more > summary::-webkit-details-marker { display: none; }
+    details.card-more > summary:hover { color: var(--text); }
+    details.card-more .more-chevron { transition: transform 0.2s ease; font-size: 11px; }
+    details.card-more[open] .more-chevron { transform: rotate(180deg); }
+    .card-more-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 
     /* Key Value Stats */
-    .stat-list { display: flex; flex-direction: column; gap: 9px; font-size: 13px; margin-bottom: 14px; }
-    .stat-row { display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); }
-    .stat-row .val { color: var(--text); font-weight: 500; font-family: ui-monospace, SFMono-Regular, monospace; }
-
-    /* Progress bar */
-    .progress-box { margin-top: 10px; background: rgba(13, 17, 23, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); padding: 8px 10px; border-radius: 8px; }
-    .progress-header { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
-    .progress-bar-bg { height: 7px; background: rgba(110, 118, 129, 0.2); border-radius: 6px; overflow: hidden; }
-    .progress-bar-fill { height: 100%; border-radius: 6px; transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.4s ease; }
-    .fill-green { background: linear-gradient(90deg, #238636, #3fb950); }
-    .fill-yellow { background: linear-gradient(90deg, #d29922, #e3b341); }
-    .fill-red { background: linear-gradient(90deg, #da3633, #f85149); box-shadow: 0 0 8px rgba(248, 81, 73, 0.6); }
+    .stat-list { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+    .stat-row { display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); gap: 8px; }
+    .stat-row .val { color: var(--text); font-weight: 500; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11.5px; }
 
     /* Dual model container */
-    .dual-models-box { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .sub-model-card { background: rgba(13, 17, 23, 0.7); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px; font-size: 11px; }
-    .sub-model-title { font-weight: 600; color: var(--text); font-size: 12px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
-    .sub-model-meta { color: var(--text-muted); font-size: 11px; margin-bottom: 6px; }
+    .dual-models-box { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .sub-model-card { background: var(--surface-inset); border: 1px solid var(--card-border); border-radius: 8px; padding: 8px 10px; font-size: 11px; }
+    .sub-model-title { font-weight: 600; color: var(--text); font-size: 11.5px; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+    .sub-model-meta { color: var(--text-muted); font-size: 10.5px; margin-bottom: 5px; }
 
-    /* Points & Reset Badges */
-    .highlight-pill { background: rgba(88, 166, 255, 0.12); color: var(--accent); border: 1px solid rgba(88, 166, 255, 0.25); border-radius: 6px; padding: 2px 7px; font-size: 11px; font-family: ui-monospace, monospace; }
-    .points-hero { background: linear-gradient(135deg, rgba(88, 166, 255, 0.08), rgba(63, 185, 80, 0.12)); border: 1px solid rgba(63, 185, 80, 0.3); border-radius: 10px; padding: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .points-val { font-size: 24px; font-weight: 700; color: var(--green); font-family: ui-monospace, SFMono-Regular, monospace; }
-
-    /* Workbuddy checkin panel */
-    .history-item { font-size: 12px; padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; color: var(--text-muted); }
+    .highlight-pill { background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(79, 156, 249, 0.24); border-radius: 6px; padding: 1px 7px; font-size: 11px; font-family: ui-monospace, monospace; }
+    .inset-box { background: var(--surface-inset); border: 1px solid var(--card-border); border-radius: 8px; padding: 9px 10px; }
+    .history-item { font-size: 11.5px; padding: 5px 0; border-bottom: 1px solid var(--card-border); display: flex; justify-content: space-between; color: var(--text-muted); }
     .history-item:last-child { border-bottom: none; }
+
+    /* =========================================================================
+       Raycast-Style Global Command Palette (Cmd+K)
+       ========================================================================= */
+    .cmd-overlay {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      display: none; align-items: flex-start; justify-content: center; padding-top: 13vh; z-index: 260;
+    }
+    .cmd-overlay.open { display: flex; }
+    .cmd-palette {
+      width: min(620px, 92vw); background: var(--modal-bg); border: 1px solid var(--card-border-hover);
+      border-radius: 14px; box-shadow: var(--shadow-float); overflow: hidden; animation: modalIn 0.16s ease-out;
+    }
+    .cmd-input-wrap {
+      display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--card-border);
+    }
+    .cmd-input {
+      flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 14.5px;
+    }
+    .cmd-input::placeholder { color: var(--text-muted); }
+    .cmd-list { max-height: 360px; overflow-y: auto; padding: 6px; }
+    .cmd-group-title { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 7px 10px 4px; }
+    .cmd-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text);
+      transition: background-color 0.1s ease;
+    }
+    .cmd-item.selected, .cmd-item:hover { background: var(--accent-soft); }
+    .cmd-item-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .cmd-item-sub { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cmd-footer {
+      padding: 8px 14px; border-top: 1px solid var(--card-border); background: var(--surface-inset);
+      display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted);
+    }
 
     /* =========================================================================
        AG-UI Right Drawer (流式对话抽屉)
        ========================================================================= */
     .drawer-backdrop {
-      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px);
-      z-index: 150; opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.42); backdrop-filter: blur(2px);
+      z-index: 150; opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
     }
     .drawer-backdrop.active { opacity: 1; pointer-events: auto; }
 
     .chat-drawer {
-      position: fixed; top: 0; right: 0; bottom: 0; width: 440px; max-width: 90vw;
-      background: rgba(18, 22, 28, 0.96); backdrop-filter: blur(20px);
-      border-left: 1px solid var(--card-border); box-shadow: -10px 0 40px rgba(0, 0, 0, 0.6);
+      position: fixed; top: 0; right: 0; bottom: 0; width: 440px; max-width: 92vw;
+      background: var(--drawer-bg); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+      border-left: 1px solid var(--card-border); box-shadow: var(--shadow-float);
       z-index: 160; display: flex; flex-direction: column;
-      transform: translateX(100%); transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+      transform: translateX(100%); transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .chat-drawer.open { transform: translateX(0); }
 
     .drawer-header {
-      padding: 16px 20px; border-bottom: 1px solid var(--card-border);
-      display: flex; justify-content: space-between; align-items: center;
-      background: rgba(13, 17, 23, 0.5);
+      padding: 15px 18px; border-bottom: 1px solid var(--card-border);
+      display: flex; justify-content: space-between; align-items: center; background: var(--surface-inset);
     }
     .drawer-header-left { display: flex; align-items: center; gap: 10px; }
-    .drawer-icon { font-size: 20px; }
-    .drawer-title h3 { font-size: 15px; font-weight: 600; }
+    .drawer-title h3 { font-size: 14.5px; font-weight: 650; }
     .drawer-title span { font-size: 11px; color: var(--text-muted); }
     .drawer-actions { display: flex; align-items: center; gap: 6px; }
 
     .drawer-agent-bar {
-      padding: 10px 20px; background: rgba(22, 27, 34, 0.5);
+      padding: 9px 18px; background: var(--card-bg);
       border-bottom: 1px solid var(--card-border); display: flex; align-items: center; gap: 8px; font-size: 12px;
     }
     .agent-select {
-      flex: 1; background: #0d1117; color: var(--text); border: 1px solid #30363d;
-      padding: 6px 10px; border-radius: 6px; font-size: 12px; outline: none; cursor: pointer;
+      flex: 1; background: var(--input-bg); color: var(--text); border: 1px solid var(--card-border-hover);
+      padding: 6px 10px; border-radius: 7px; font-size: 12px; outline: none; cursor: pointer;
     }
     .agent-select:focus { border-color: var(--accent); }
 
     .chat-messages {
-      flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;
+      flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px;
       scroll-behavior: smooth;
     }
     .msg-row { display: flex; flex-direction: column; max-width: 92%; }
     .msg-user { align-self: flex-end; }
     .msg-agent { align-self: flex-start; }
 
-    .msg-bubble {
-      padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; word-break: break-word;
-    }
-    .msg-user .msg-bubble {
-      background: #1f6feb; color: #fff; border-bottom-right-radius: 2px;
-    }
-    .msg-agent .msg-bubble {
-      background: rgba(33, 38, 45, 0.85); border: 1px solid var(--card-border);
-      color: var(--text); border-bottom-left-radius: 2px;
-    }
+    .msg-bubble { padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; word-break: break-word; }
+    .msg-user .msg-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 3px; }
+    .msg-agent .msg-bubble { background: var(--surface-inset); border: 1px solid var(--card-border); color: var(--text); border-bottom-left-radius: 3px; }
     .msg-sender { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 5px; }
 
-    /* Tool Call Card */
-    .tool-call-card {
-      background: rgba(13, 17, 23, 0.7); border: 1px solid rgba(88, 166, 255, 0.3);
-      border-radius: 8px; padding: 8px 12px; font-size: 12px; margin: 6px 0;
-    }
+    .tool-call-card { background: var(--surface-inset); border: 1px solid rgba(79, 156, 249, 0.28); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin: 6px 0; }
     .tool-header { display: flex; justify-content: space-between; align-items: center; color: var(--accent); font-weight: 500; }
     .tool-result { margin-top: 4px; color: var(--text-muted); font-size: 11px; font-family: ui-monospace, monospace; }
 
-    /* Typing cursor */
-    .typing-cursor {
-      display: inline-block; width: 6px; height: 13px; background: var(--accent);
-      margin-left: 2px; vertical-align: middle; animation: blink 0.8s infinite;
-    }
+    .typing-cursor { display: inline-block; width: 6px; height: 13px; background: var(--accent); margin-left: 2px; vertical-align: middle; animation: blink 0.8s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
-    /* Quick Prompts Chips */
-    .quick-prompts {
-      padding: 8px 20px; display: flex; gap: 6px; overflow-x: auto; white-space: nowrap;
-      border-top: 1px solid rgba(255, 255, 255, 0.05); background: rgba(13, 17, 23, 0.4);
-    }
-    .chip {
-      background: rgba(33, 38, 45, 0.8); border: 1px solid var(--card-border);
-      color: var(--text-muted); font-size: 11px; padding: 4px 9px; border-radius: 12px; cursor: pointer; transition: all 0.2s;
-    }
-    .chip:hover { color: var(--accent); border-color: rgba(88, 166, 255, 0.4); background: rgba(88, 166, 255, 0.1); }
+    .quick-prompts { padding: 8px 18px; display: flex; gap: 6px; overflow-x: auto; white-space: nowrap; border-top: 1px solid var(--card-border); background: var(--surface-inset); }
+    .chip { background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-muted); font-size: 11px; padding: 4px 9px; border-radius: 12px; cursor: pointer; transition: all 0.16s; }
+    .chip:hover { color: var(--accent); border-color: rgba(79, 156, 249, 0.4); background: var(--accent-soft); }
 
-    /* Chat Input Bar */
-    .chat-input-bar {
-      padding: 12px 20px 16px; border-top: 1px solid var(--card-border);
-      background: rgba(13, 17, 23, 0.7); display: flex; gap: 10px; align-items: flex-end;
-    }
-    .chat-textarea {
-      flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
-      color: var(--text); padding: 9px 12px; font-size: 13px; resize: none; min-height: 40px; max-height: 120px; outline: none;
-    }
+    .chat-input-bar { padding: 12px 18px 16px; border-top: 1px solid var(--card-border); background: var(--surface-inset); display: flex; gap: 10px; align-items: flex-end; }
+    .chat-textarea { flex: 1; background: var(--input-bg); border: 1px solid var(--card-border-hover); border-radius: 8px; color: var(--text); padding: 9px 12px; font-size: 13px; resize: none; min-height: 40px; max-height: 120px; outline: none; }
     .chat-textarea:focus { border-color: var(--accent); }
-    .btn-send {
-      width: 40px; height: 40px; background: #238636; border: none; border-radius: 8px;
-      color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 15px; transition: all 0.2s;
-    }
-    .btn-send:hover { background: #2ea043; }
-    .btn-send:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
+    .btn-send { width: 40px; height: 40px; background: var(--accent); border: none; border-radius: 8px; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 15px; transition: opacity 0.2s; }
+    .btn-send:hover { opacity: 0.9; }
+    .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* =========================================================================
-       90% Circuit Breaker Modal (Human-in-the-Loop 熔断模态审批)
+       Modals & Circuit Breaker
        ========================================================================= */
-    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 200; }
-    .modal { background: #161b22; border: 1px solid #30363d; border-radius: 14px; width: 92%; max-width: 540px; padding: 24px; box-shadow: 0 10px 50px rgba(0, 0, 0, 0.7); animation: modalIn 0.25s ease-out; }
-    @keyframes modalIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.58); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 220; }
+    .modal { background: var(--modal-bg); border: 1px solid var(--card-border-hover); border-radius: 14px; width: 92%; max-width: 540px; max-height: 88vh; overflow-y: auto; padding: 22px 24px; box-shadow: var(--shadow-float); animation: modalIn 0.2s ease-out; color: var(--text); }
+    .modal input.form-control { background: var(--input-bg) !important; border-color: var(--card-border-hover) !important; color: var(--text) !important; }
+    @keyframes modalIn { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-    .circuit-modal { border: 1px solid rgba(248, 81, 73, 0.4); box-shadow: 0 0 35px rgba(248, 81, 73, 0.25); }
+    .circuit-modal { border: 1px solid rgba(242, 85, 85, 0.4); }
     .circuit-header { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
-    .circuit-glow {
-      width: 46px; height: 46px; border-radius: 12px; background: rgba(248, 81, 73, 0.15);
-      border: 1px solid rgba(248, 81, 73, 0.35); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0;
-    }
-    .circuit-title h3 { font-size: 17px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .circuit-glow { width: 44px; height: 44px; border-radius: 11px; background: rgba(242, 85, 85, 0.14); border: 1px solid rgba(242, 85, 85, 0.35); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; color: var(--red); }
+    .circuit-title h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
     .circuit-title p { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
-
-    .circuit-alert-box {
-      background: rgba(248, 81, 73, 0.08); border: 1px solid rgba(248, 81, 73, 0.25);
-      border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px;
-    }
+    .circuit-alert-box { background: rgba(242, 85, 85, 0.07); border: 1px solid rgba(242, 85, 85, 0.24); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; }
     .circuit-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
     .circuit-row:last-child { margin-bottom: 0; }
-    .circuit-msg { font-size: 12px; color: #ff7b72; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(248, 81, 73, 0.2); }
-
+    .circuit-msg { font-size: 12px; color: var(--red); margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(242, 85, 85, 0.24); }
     .circuit-options-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; }
-    .circuit-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-    .circuit-option {
-      background: rgba(13, 17, 23, 0.7); border: 1px solid var(--card-border);
-      border-radius: 10px; padding: 12px; cursor: pointer; transition: all 0.2s; display: flex; gap: 12px; align-items: flex-start;
-    }
-    .circuit-option:hover { border-color: rgba(88, 166, 255, 0.5); background: rgba(88, 166, 255, 0.05); }
-    .circuit-option.active { border-color: var(--accent); background: rgba(88, 166, 255, 0.12); box-shadow: 0 0 10px rgba(88, 166, 255, 0.2); }
-    .circuit-option.danger.active { border-color: var(--red); background: rgba(248, 81, 73, 0.12); box-shadow: 0 0 10px rgba(248, 81, 73, 0.2); }
-    .opt-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #484f58; margin-top: 2px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .circuit-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+    .circuit-option { background: var(--surface-inset); border: 1px solid var(--card-border); border-radius: 10px; padding: 11px 12px; cursor: pointer; transition: all 0.16s; display: flex; gap: 12px; align-items: flex-start; }
+    .circuit-option:hover { border-color: var(--accent); }
+    .circuit-option.active { border-color: var(--accent); background: var(--accent-soft); }
+    .circuit-option.danger.active { border-color: var(--red); background: rgba(242, 85, 85, 0.1); }
+    .opt-radio { width: 17px; height: 17px; border-radius: 50%; border: 2px solid var(--text-muted); margin-top: 2px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .circuit-option.active .opt-radio { border-color: var(--accent); }
     .circuit-option.danger.active .opt-radio { border-color: var(--red); }
     .opt-radio-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: none; }
     .circuit-option.active .opt-radio-dot { display: block; }
     .circuit-option.danger.active .opt-radio-dot { background: var(--red); }
-    .opt-content h4 { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
-    .opt-content p { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+    .opt-content h4 { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .opt-content p { font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
 
     /* Toast */
     .toast {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(100px);
-      background: #161b22; border: 1px solid var(--card-border); color: var(--text);
-      padding: 10px 18px; border-radius: 30px; font-size: 13px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-      z-index: 300; transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex; align-items: center; gap: 8px;
+      background: var(--modal-bg); border: 1px solid var(--card-border-hover); color: var(--text);
+      padding: 9px 16px; border-radius: 999px; font-size: 12.5px; box-shadow: var(--shadow-float);
+      z-index: 300; transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1); display: flex; align-items: center; gap: 8px;
     }
     .toast.show { transform: translateX(-50%) translateY(0); }
 
     /* =========================================================================
-       Mission Control (多 Agent 任务与审批中心)
+       Mission Control & Trends
        ========================================================================= */
-    .view-tabs { display: inline-flex; background: rgba(13, 17, 23, 0.8); border: 1px solid var(--card-border); border-radius: 10px; padding: 3px; gap: 4px; }
-    .view-tab { background: transparent; border: none; color: var(--text-muted); padding: 6px 13px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; }
-    .view-tab:hover { color: var(--text); }
-    .view-tab.active { background: rgba(88, 166, 255, 0.18); color: #fff; box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.35); }
     .tab-badge { background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px; min-width: 18px; text-align: center; display: none; }
     .tab-badge.show { display: inline-block; }
 
     .mc-view { display: none; }
     .mc-view.active { display: block; }
-    .mc-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-    .mc-kpi { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px 16px; }
+    .mc-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+    .mc-kpi { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow-card); }
     .mc-kpi-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-    .mc-kpi-val { font-size: 24px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; }
+    .mc-kpi-val { font-size: 24px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
 
-    .mc-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; align-items: start; }
-    .mc-panel { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 18px; margin-bottom: 20px; }
-    .mc-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
-    .mc-panel-head h3 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .mc-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; align-items: start; }
+    .mc-panel { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--shadow-card); }
+    .mc-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+    .mc-panel-head h3 { font-size: 14.5px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
 
     .risk-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; text-transform: uppercase; font-family: ui-monospace, monospace; }
-    .risk-critical { background: rgba(248, 81, 73, 0.2); color: #ff7b72; border: 1px solid rgba(248, 81, 73, 0.45); }
-    .risk-high { background: rgba(210, 153, 34, 0.2); color: #e3b341; border: 1px solid rgba(210, 153, 34, 0.45); }
-    .risk-medium { background: rgba(88, 166, 255, 0.18); color: var(--accent); border: 1px solid rgba(88, 166, 255, 0.35); }
-    .risk-low { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
+    .risk-critical { background: rgba(242, 85, 85, 0.16); color: var(--red); border: 1px solid rgba(242, 85, 85, 0.35); }
+    .risk-high { background: rgba(229, 160, 13, 0.16); color: var(--yellow); border: 1px solid rgba(229, 160, 13, 0.35); }
+    .risk-medium { background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(79, 156, 249, 0.3); }
+    .risk-low { background: rgba(52, 199, 89, 0.14); color: var(--green); border: 1px solid rgba(52, 199, 89, 0.28); }
 
-    .mc-card-item { background: rgba(13, 17, 23, 0.65); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
-    .mc-card-item.pending { border-color: rgba(248, 81, 73, 0.35); background: rgba(248, 81, 73, 0.05); }
-    .mc-code-pre { background: #0d1117; border: 1px solid rgba(240, 246, 252, 0.08); border-radius: 6px; padding: 8px 10px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace; color: #c9d1d9; overflow-x: auto; white-space: pre-wrap; margin: 8px 0; }
-    .mc-form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-    .mc-input { background: #0d1117; border: 1px solid #30363d; color: var(--text); padding: 7px 10px; border-radius: 7px; font-size: 12.5px; outline: none; }
+    .mc-card-item { background: var(--surface-inset); border: 1px solid var(--card-border); border-radius: 10px; padding: 11px 13px; margin-bottom: 9px; }
+    .mc-card-item.pending { border-color: rgba(242, 85, 85, 0.35); background: rgba(242, 85, 85, 0.05); }
+    .mc-code-pre { background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 7px; padding: 8px 10px; font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, monospace; color: var(--text); overflow-x: auto; white-space: pre-wrap; margin: 8px 0; }
+    .mc-form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .mc-input { background: var(--input-bg); border: 1px solid var(--card-border-hover); color: var(--text); padding: 7px 10px; border-radius: 7px; font-size: 12.5px; outline: none; }
     .mc-input:focus { border-color: var(--accent); }
     .mc-filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-    .mc-filter-pill { background: rgba(33, 38, 45, 0.7); border: 1px solid var(--card-border); color: var(--text-muted); padding: 4px 10px; border-radius: 14px; font-size: 11.5px; cursor: pointer; }
-    .mc-filter-pill.active { background: rgba(88, 166, 255, 0.18); color: var(--accent); border-color: rgba(88, 166, 255, 0.4); }
-    .mc-log-item { font-size: 12px; padding: 7px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; gap: 10px; }
+    .mc-filter-pill { background: var(--btn-bg); border: 1px solid var(--card-border); color: var(--text-muted); padding: 4px 10px; border-radius: 999px; font-size: 11.5px; cursor: pointer; }
+    .mc-filter-pill.active { background: var(--accent-soft); color: var(--accent); border-color: rgba(79, 156, 249, 0.35); font-weight: 600; }
+    .mc-log-item { font-size: 12px; padding: 7px 0; border-bottom: 1px solid var(--card-border); display: flex; justify-content: space-between; gap: 10px; }
     .mc-log-item:last-child { border-bottom: none; }
 
-    /* Responsive */
-    @media (max-width: 960px) {
+    @media (max-width: 1020px) {
+      .grid { grid-template-columns: 1fr; }
       .mc-layout { grid-template-columns: 1fr; }
       .mc-kpis { grid-template-columns: repeat(2, 1fr); }
     }
-
-    /* Responsive */
     @media (max-width: 820px) {
-      .sidebar { position: fixed; top: 0; left: 0; bottom: 0; transform: translateX(-100%); box-shadow: 8px 0 32px rgba(0, 0, 0, 0.65); }
+      .sidebar { position: fixed; top: 0; left: 0; bottom: 0; transform: translateX(-100%); box-shadow: var(--shadow-float); }
       .sidebar.open { transform: translateX(0); }
       .mobile-menu-btn { display: inline-flex; }
-      .main-workspace { padding: 16px; }
-      .grid { grid-template-columns: 1fr; }
+      .main-workspace { padding: 14px; }
       .dual-models-box { grid-template-columns: 1fr; }
       .chat-drawer { width: 100vw; max-width: 100vw; }
+      .cmd-trigger { min-width: auto; }
     }
   </style>
 </head>
@@ -348,60 +416,93 @@
   <aside class="sidebar" id="appSidebar">
     <div class="sidebar-top">
       <div class="sidebar-brand">
-        <div class="brand-icon">🛸</div>
+        <div class="brand-icon">
+          <svg class="ico" style="width:17px;height:17px;" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
         <div>
           <h1>Agent Cockpit</h1>
-          <p>AG-UI 1.0 多智能体工作台</p>
+          <p>Multi-Agent Control Plane</p>
         </div>
       </div>
 
       <div class="nav-group">
         <div class="nav-group-label">监控总览</div>
         <button class="nav-item active" id="nav-quota" onclick="switchView('quota')">
-          <span class="nav-item-left"><span>📊</span><span>配额监控大屏</span></span>
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            <span>配额监控大屏</span>
+          </span>
         </button>
         <button class="nav-item" id="nav-trends" onclick="switchView('trends')">
-          <span class="nav-item-left"><span>📈</span><span>用量趋势分析</span></span>
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <span>用量趋势分析</span>
+          </span>
         </button>
       </div>
 
       <div class="nav-group">
         <div class="nav-group-label">Mission Control</div>
         <button class="nav-item" id="nav-mission" onclick="switchView('mission')">
-          <span class="nav-item-left"><span>🎛️</span><span>综合控制面</span></span>
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>综合控制面</span>
+          </span>
         </button>
         <button class="nav-item" id="nav-approvals" onclick="switchView('approvals')">
-          <span class="nav-item-left"><span>🛡️</span><span>待审批队列</span></span>
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>待审批队列</span>
+          </span>
           <span class="tab-badge" id="mcPendingBadge">0</span>
         </button>
         <button class="nav-item" id="nav-tasks" onclick="switchView('tasks')">
-          <span class="nav-item-left"><span>📋</span><span>多 Agent 任务</span></span>
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span>多 Agent 任务</span>
+          </span>
           <span class="nav-count" id="mcRunningBadge">0</span>
         </button>
         <button class="nav-item" id="nav-sessions" onclick="switchView('sessions')">
-          <span class="nav-item-left"><span>🛰️</span><span>会话与审计</span></span>
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span>会话与审计</span>
+          </span>
         </button>
       </div>
 
       <div class="nav-group">
-        <div class="nav-group-label">工具与系统</div>
-        <button class="nav-item" id="btnToggleDrawer" onclick="toggleChatDrawer()">
-          <span class="nav-item-left"><span>💬</span><span>智能体指令台</span></span>
+        <div class="nav-group-label">快捷工具</div>
+        <button class="nav-item" onclick="openCmdPalette()">
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span>全局命令面板</span>
+          </span>
           <kbd class="nav-kbd">⌘K</kbd>
         </button>
+        <button class="nav-item" id="btnToggleDrawer" onclick="toggleChatDrawer()">
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span>智能体对话台</span>
+          </span>
+          <kbd class="nav-kbd">⌘J</kbd>
+        </button>
         <button class="nav-item" onclick="openConfigModal()">
-          <span class="nav-item-left"><span>⚙️</span><span>凭据与设置</span></span>
+          <span class="nav-item-left">
+            <svg class="ico" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+            <span>凭据与设置</span>
+          </span>
         </button>
       </div>
     </div>
 
     <div class="sidebar-footer">
-      <span id="aguiStatus" class="highlight-pill" style="display:flex; align-items:center; justify-content:center; gap:6px; background:rgba(63,185,80,0.12); color:var(--green); border-color:rgba(63,185,80,0.3); font-size:11.5px; padding: 5px 8px;">
-        <span class="dot dot-pulse"></span> AG-UI 实时流已连接
+      <span id="aguiStatus" class="highlight-pill" style="display:flex; align-items:center; justify-content:center; gap:6px; background:rgba(52,199,89,0.12); color:var(--green); border-color:rgba(52,199,89,0.28); font-size:11px; padding: 5px 8px;">
+        <span class="dot dot-pulse"></span> AG-UI 实时流在线
       </span>
       <div class="sidebar-status-row">
         <span class="server-time" id="serverTime">检测中...</span>
-        <button class="btn" style="padding:4px 8px; font-size:11.5px;" onclick="fetchStatus(true)">🔄 刷新</button>
+        <button class="btn" style="padding:3px 8px; font-size:11px;" onclick="fetchStatus(true)">刷新</button>
       </div>
     </div>
   </aside>
@@ -415,15 +516,27 @@
       <div class="brand">
         <button class="btn mobile-menu-btn" onclick="toggleMobileSidebar()" style="padding:6px 10px;">☰</button>
         <div>
-          <h1 id="pageTitle">📊 配额监控大屏</h1>
-          <p id="pageSubtitle">多智能体统一监控 · 5小时/周/月订阅配额 · 自动签到与积分追踪</p>
+          <h1 id="pageTitle">配额监控大屏</h1>
+          <p id="pageSubtitle">四大平台实时剩余配额 · 滑动重置节点 · 自动签到与多引擎调度</p>
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn btn-chat" onclick="toggleChatDrawer()">
-          <span>💬</span> 指令台 <kbd style="background:rgba(255,255,255,0.15); padding:1px 5px; border-radius:4px; font-size:10px; font-family:ui-monospace, monospace;">⌘K</kbd>
+        <button class="cmd-trigger" onclick="openCmdPalette()" title="打开全局命令面板 (⌘K)">
+          <span style="display:inline-flex; align-items:center; gap:7px;">
+            <svg class="ico" style="width:14px;height:14px;" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span>搜索命令或直接提问...</span>
+          </span>
+          <kbd class="nav-kbd">⌘K</kbd>
         </button>
-        <button class="btn" onclick="openConfigModal()">⚙️ 设置凭据</button>
+        <button class="btn" id="themeToggleBtn" onclick="cycleThemeMode()" title="切换外观主题 (跟随系统 / 深色 / 浅色)">
+          <span id="themeToggleLabel">自动外观</span>
+        </button>
+        <button class="btn btn-chat" onclick="toggleChatDrawer()">
+          <svg class="ico" style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>对话台</span>
+          <kbd class="nav-kbd" style="border:none;">⌘J</kbd>
+        </button>
+        <button class="btn" onclick="openConfigModal()">设置</button>
       </div>
     </header>
 
@@ -433,76 +546,76 @@
         <div>
           <div class="card-header">
             <div class="card-title">
-              <span class="card-icon">⚡</span>
+              <div class="brand-emblem emblem-ag">
+                <svg class="ico" style="width:18px;height:18px;" viewBox="0 0 24 24"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z"/></svg>
+              </div>
               <div>
                 <h2>Google Antigravity</h2>
-                <span style="font-size: 12px; color: var(--text-muted);">反重力智能体 · 5h/周额度与双模型池</span>
+                <div class="card-subtitle" id="agTier">Google AI Pro · 官方直连</div>
               </div>
             </div>
             <div id="agBadge" class="badge badge-stopped"><span class="dot"></span> 未运行</div>
           </div>
-          <div class="stat-list">
-            <div class="stat-row"><span>官方订阅与数据源</span><span class="val" id="agTier" style="color:var(--green); font-weight:600;">Google AI Pro (官方直连)</span></div>
-            <div class="stat-row"><span>当前活跃模型</span><span class="val" id="agModel" style="color:var(--accent); font-weight:600;">-</span></div>
-            <div class="stat-row"><span>IDE / 服务端状态</span><span class="val" id="agVersion">-</span></div>
-            <div class="stat-row"><span>独立汉化启动器</span><span class="val" id="agZh">-</span></div>
-            <div class="stat-row"><span>Prompt 缓存省流倍率</span><span class="val" id="agCache" style="color:var(--green);">-</span></div>
-            <div class="stat-row"><span>最近活动时间</span><span class="val" id="agLast">-</span></div>
-          </div>
 
-          <!-- 5h Rolling Subscription Window -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>⏱️ 5小时订阅额度窗口 (<span id="ag5hCountdown" style="color:var(--accent);">滚动计算中</span>)</span>
-              <span id="ag5hHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+          <div class="card-hero">
+            <div>
+              <div class="hero-num" id="agHeroVal">100%</div>
+              <div class="hero-caption">5h 剩余配额 · <span id="agModel" style="color:var(--accent); font-weight:600;">-</span></div>
             </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="ag5hBar" style="width: 0%;"></div>
+            <div class="hero-right">
+              <span class="highlight-pill" id="agCache">缓存 1.0x</span>
+              <span style="font-size:11px; color:var(--text-muted);" id="agVersion">-</span>
             </div>
           </div>
 
-          <!-- Weekly Rolling Subscription Window -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>📅 7天周订阅额度窗口 (<span id="agWkCountdown" style="color:var(--purple);">计算中</span>)</span>
-              <span id="agWkHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="agWkBar" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <!-- Context Window Bar -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>当前会话上下文窗口 (100万 Token)</span>
-              <span id="agCtxHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0k / 1.0M (0%)</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="agCtxBar" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <!-- Dual Models Breakdown (两套模型独立统计) -->
-          <div style="font-size: 12px; color: var(--text-muted); margin-top: 14px; font-weight: 500;">🗂️ 两套模型专属配额池消耗：</div>
-          <div class="dual-models-box" id="agDualModels">
-            <div class="sub-model-card">
-              <div class="sub-model-title">
-                <span>⚡ Gemini 3.8 Flash</span>
-                <span class="highlight-pill">主力套</span>
+          <div class="progress-stack">
+            <div class="progress-box">
+              <div class="progress-header">
+                <span><strong>5小时窗口</strong> · <span id="ag5hCountdown" style="color:var(--accent);">计算中</span></span>
+                <span id="ag5hHuman" style="font-family:ui-monospace,monospace;">0%</span>
               </div>
-              <div class="sub-model-meta">5h: 0k · 周: 0M</div>
-              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" style="width: 0%;"></div></div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="ag5hBar" style="width: 0%;"></div></div>
             </div>
-            <div class="sub-model-card">
-              <div class="sub-model-title">
-                <span>🧠 Claude 3.5 Sonnet</span>
-                <span class="highlight-pill">高阶套</span>
+            <div class="progress-box">
+              <div class="progress-header">
+                <span><strong>7天周窗口</strong> · <span id="agWkCountdown" style="color:var(--purple);">计算中</span></span>
+                <span id="agWkHuman" style="font-family:ui-monospace,monospace;">0%</span>
               </div>
-              <div class="sub-model-meta">5h: 0k · 周: 0M</div>
-              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" style="width: 0%;"></div></div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="agWkBar" style="width: 0%;"></div></div>
             </div>
           </div>
+
+          <details class="card-more">
+            <summary>
+              <span>双模型池细分与会话上下文</span>
+              <span class="more-chevron">▾</span>
+            </summary>
+            <div class="card-more-body">
+              <div class="dual-models-box" id="agDualModels">
+                <div class="sub-model-card">
+                  <div class="sub-model-title"><span>Gemini 主力池</span><span class="highlight-pill">充裕</span></div>
+                  <div class="sub-model-meta">5h: 0% · 周: 0%</div>
+                  <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" style="width: 0%;"></div></div>
+                </div>
+                <div class="sub-model-card">
+                  <div class="sub-model-title"><span>Claude / GPT 池</span><span class="highlight-pill">充裕</span></div>
+                  <div class="sub-model-meta">5h: 0% · 周: 0%</div>
+                  <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" style="width: 0%;"></div></div>
+                </div>
+              </div>
+              <div class="progress-box">
+                <div class="progress-header">
+                  <span>当前上下文窗口 (1M)</span>
+                  <span id="agCtxHuman" style="font-family:ui-monospace,monospace;">0k / 1.0M (0%)</span>
+                </div>
+                <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="agCtxBar" style="width: 0%;"></div></div>
+              </div>
+              <div class="stat-list">
+                <div class="stat-row"><span>启动入口</span><span class="val" id="agZh">-</span></div>
+                <div class="stat-row"><span>最近活跃</span><span class="val" id="agLast">-</span></div>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -511,74 +624,65 @@
         <div>
           <div class="card-header">
             <div class="card-title">
-              <span class="card-icon">🧠</span>
+              <div class="brand-emblem emblem-cdx">
+                <svg class="ico" style="width:18px;height:18px;" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              </div>
               <div>
                 <h2>OpenAI Codex</h2>
-                <span style="font-size: 12px; color: var(--text-muted);">编程智能体 · 5h/周配额与到期重置</span>
+                <div class="card-subtitle" id="cdxRemText">5h剩余 100% · 周剩余 100%</div>
               </div>
             </div>
             <div id="cdxBadge" class="badge badge-stopped"><span class="dot"></span> 空闲</div>
           </div>
-          <div class="stat-list">
-            <div class="stat-row"><span>安装状态</span><span class="val" id="cdxInstalled">-</span></div>
-            <div class="stat-row"><span>应用版本</span><span class="val" id="cdxVersion">-</span></div>
-            <div class="stat-row"><span>存储目录</span><span class="val" id="cdxDir" style="font-size:11px;">~/.codex</span></div>
-            <div class="stat-row"><span>日志与事件总计</span><span class="val" id="cdxEvents">-</span></div>
-            <div class="stat-row"><span>最近活动时间</span><span class="val" id="cdxLast">-</span></div>
-          </div>
 
-          <!-- 5h Codex Window -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>⏱️ 5小时会话额度窗口 (<span id="cdx5hCountdown" style="color:var(--accent);">随时可用</span>)</span>
-              <span id="cdx5hHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+          <div class="card-hero">
+            <div>
+              <div class="hero-num" id="cdxHeroVal">100%</div>
+              <div class="hero-caption">5h 剩余配额 · 重置到期 <span id="cdx5hExpire" style="color:var(--accent);">随时就绪</span></div>
             </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="cdx5hBar" style="width: 0%;"></div>
+            <div class="hero-right">
+              <span class="highlight-pill" id="cdxResetCreditCount" style="color:var(--green); border-color:rgba(52,199,89,0.3);">重置券 可用 0</span>
+              <span style="font-size:11px; color:var(--text-muted);" id="cdxFullResets">-</span>
             </div>
           </div>
 
-          <!-- Weekly Codex Window -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>📅 7天周总配额窗口 (<span id="cdxWkCountdown" style="color:var(--purple);">周重置</span>)</span>
-              <span id="cdxWkHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+          <div class="progress-stack">
+            <div class="progress-box">
+              <div class="progress-header">
+                <span><strong>5小时窗口</strong> · <span id="cdx5hCountdown" style="color:var(--accent);">随时可用</span></span>
+                <span id="cdx5hHuman" style="font-family:ui-monospace,monospace;">0%</span>
+              </div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="cdx5hBar" style="width: 0%;"></div></div>
             </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="cdxWkBar" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <!-- Reset Counters & Expiration Stats (可用完全重置次数与到期时间) -->
-          <div style="margin-top: 12px; background: rgba(13, 17, 23, 0.7); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px;">
-            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;">
-              <span>🔄 本周可用完全重置次数：</span>
-              <span style="color:var(--green); font-weight:600;" id="cdxFullResets">-</span>
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display:flex; justify-content:space-between;">
-              <span>📊 剩余额度概览：</span>
-              <span style="color:var(--accent); font-weight:600;" id="cdxRemText">5h剩余 100% · 周剩余 100%</span>
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
-              <span>⏰ 5小时完全重置到期：</span>
-              <span class="highlight-pill" id="cdx5hExpire">随时就绪</span>
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; display:flex; justify-content:space-between; align-items:center;">
-              <span>📅 7天周配额重置到期：</span>
-              <span style="font-family:ui-monospace; font-size:11px; color:var(--text);" id="cdxWkExpire">-</span>
+            <div class="progress-box">
+              <div class="progress-header">
+                <span><strong>7天周窗口</strong> · <span id="cdxWkCountdown" style="color:var(--purple);">周重置</span></span>
+                <span id="cdxWkHuman" style="font-family:ui-monospace,monospace;">0%</span>
+              </div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="cdxWkBar" style="width: 0%;"></div></div>
             </div>
           </div>
 
-          <!-- Official Codex Rate-Limit Reset Credits (使用限额重置) -->
-          <div id="cdxResetCreditsBox" style="margin-top: 10px; background: rgba(13, 17, 23, 0.7); border: 1px solid rgba(88, 166, 255, 0.25); border-radius: 8px; padding: 10px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-              <span style="font-size: 12px; font-weight: 600; color: var(--text);">⚡ 使用限额重置（每周 + 5 小时）</span>
-              <span class="highlight-pill" id="cdxResetCreditCount" style="color:var(--green); border-color:rgba(63,185,80,0.35);">可用 0</span>
+          <details class="card-more">
+            <summary>
+              <span>限额重置券明细与本地环境</span>
+              <span class="more-chevron">▾</span>
+            </summary>
+            <div class="card-more-body">
+              <div id="cdxResetCreditsBox" class="inset-box">
+                <div style="font-size:11.5px; font-weight:600; margin-bottom:6px; color:var(--text);">使用限额重置（每周 + 5 小时）</div>
+                <div id="cdxResetCreditList" style="display:flex; flex-direction:column; gap:5px;">
+                  <div style="font-size:11px; color:var(--text-muted);">同步官方重置额度中...</div>
+                </div>
+              </div>
+              <div class="stat-list">
+                <div class="stat-row"><span>7天周配额重置到期</span><span class="val" id="cdxWkExpire">-</span></div>
+                <div class="stat-row"><span>客户端状态 / 版本</span><span class="val"><span id="cdxInstalled">-</span> · <span id="cdxVersion">-</span></span></div>
+                <div class="stat-row"><span>会话目录 / 事件数</span><span class="val"><span id="cdxDir">~/.codex</span> · <span id="cdxEvents">-</span></span></div>
+                <div class="stat-row"><span>最近活跃</span><span class="val" id="cdxLast">-</span></div>
+              </div>
             </div>
-            <div id="cdxResetCreditList" style="display:flex; flex-direction:column; gap:6px;">
-              <div style="font-size:11px; color:var(--text-muted);">同步官方重置额度中...</div>
-            </div>
-          </div>
+          </details>
         </div>
       </div>
 
@@ -587,49 +691,56 @@
         <div>
           <div class="card-header">
             <div class="card-title">
-              <span class="card-icon">🤖</span>
+              <div class="brand-emblem emblem-wb">
+                <svg class="ico" style="width:18px;height:18px;" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+              </div>
               <div>
                 <h2>WorkBuddy 腾讯全场景</h2>
-                <span style="font-size: 12px; color: var(--text-muted);">自动签到 · 积分余额与防断签</span>
+                <div class="card-subtitle" id="wbAutoTime">每天 09:00 自动签到防断签</div>
               </div>
             </div>
             <div id="wbBadge" class="badge badge-stopped"><span class="dot"></span> 未签到</div>
           </div>
 
-          <!-- Points Balance Hero Panel (积分余额核心面板) -->
-          <div class="points-hero">
+          <div class="card-hero">
             <div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">💰 账户积分余额 (Buddy 加油站)</div>
-              <div class="points-val" id="wbPoints">0</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="wbPointsSub">连续打卡 0 天 · 每日打卡奖励 +100</div>
+              <div class="hero-num" id="wbPoints" style="color:var(--green);">0</div>
+              <div class="hero-caption" id="wbPointsSub">连续打卡 0 天 · 每日奖励 +100</div>
             </div>
-            <button class="btn btn-primary" id="btnCheckin" onclick="triggerCheckin()">🎁 立即打卡</button>
-          </div>
-
-          <div class="stat-list">
-            <div class="stat-row"><span>今日签到状态</span><span class="val" id="wbTodayStatus" style="color:var(--yellow); font-weight:600;">⏳ 今日尚未打卡</span></div>
-            <div class="stat-row"><span>每日定时自动签到</span><span class="val" id="wbAutoTime" style="color:var(--accent);">每天 09:00 (自动防断签)</span></div>
-            <div class="stat-row"><span>最近打卡时间</span><span class="val" id="wbLastTime">-</span></div>
-            <div class="stat-row" id="wbExpireRow" style="display:none;"><span>⏳ 最近积分到期</span><span class="val" id="wbExpireText" style="color:var(--yellow); font-size:12px;">-</span></div>
-          </div>
-
-          <!-- 5h WorkBuddy Window -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>⏱️ 5小时任务调度窗口 (<span id="wb5hCountdown" style="color:var(--accent);">5小时滚动</span>)</span>
-              <span id="wb5hHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="wb5hBar" style="width: 0%;"></div>
+            <div class="hero-right">
+              <button class="btn btn-primary" id="btnCheckin" style="padding:6px 12px; font-size:12px;" onclick="triggerCheckin()">立即签到</button>
             </div>
           </div>
 
-          <div style="margin-top: 12px;">
-            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">最近签到积分流水记录：</div>
-            <div id="wbHistory">
-              <div class="history-item"><span>暂无记录</span></div>
+          <div class="progress-stack">
+            <div class="progress-box">
+              <div class="progress-header">
+                <span><strong>周期资源水位</strong> · <span id="wb5hCountdown" style="color:var(--accent);">套餐周期</span></span>
+                <span id="wb5hHuman" style="font-family:ui-monospace,monospace;">0%</span>
+              </div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="wb5hBar" style="width: 0%;"></div></div>
+            </div>
+            <div class="inset-box" style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; padding:6px 10px;">
+              <span style="color:var(--text-muted);">今日打卡状态</span>
+              <span id="wbTodayStatus" style="font-weight:600; color:var(--yellow);">今日尚未打卡</span>
             </div>
           </div>
+
+          <details class="card-more">
+            <summary>
+              <span>积分到期预警与最近签到流水</span>
+              <span class="more-chevron">▾</span>
+            </summary>
+            <div class="card-more-body">
+              <div class="stat-list">
+                <div class="stat-row" id="wbExpireRow" style="display:none;"><span>最近积分到期</span><span class="val" id="wbExpireText" style="color:var(--yellow);">-</span></div>
+                <div class="stat-row"><span>最近打卡时间</span><span class="val" id="wbLastTime">-</span></div>
+              </div>
+              <div id="wbHistory" class="inset-box">
+                <div class="history-item"><span>暂无记录</span></div>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -638,69 +749,65 @@
         <div>
           <div class="card-header">
             <div class="card-title">
-              <span class="card-icon">🌋</span>
+              <div class="brand-emblem emblem-volc">
+                <svg class="ico" style="width:18px;height:18px;" viewBox="0 0 24 24"><polygon points="12 2 2 21 22 21 12 2"/><polyline points="12 10 8 21 16 21 12 10"/></svg>
+              </div>
               <div>
-                <h2>火山引擎 Plan API</h2>
-                <span style="font-size: 12px; color: var(--text-muted);">方舟 Coding/Agent Plan 监控</span>
+                <h2>火山引擎 Agent Plan</h2>
+                <div class="card-subtitle" id="volcPlanExpire">订阅周期同步中</div>
               </div>
             </div>
             <div id="volcBadge" class="badge badge-stopped"><span class="dot"></span> 待配置</div>
           </div>
-          <div class="stat-list">
-            <div class="stat-row"><span>模型预设</span><span class="val" id="volcModel">doubao-seed-evolving</span></div>
-            <div class="stat-row"><span>接口连通延迟</span><span class="val" id="volcLatency">-</span></div>
-            <div class="stat-row"><span>套餐订阅到期</span><span class="val" id="volcPlanExpire" style="color:var(--accent);">未设置</span></div>
-            <div class="stat-row"><span>状态提示</span><span class="val" id="volcMsg" style="font-size:12px; text-align:right; max-width:65%;">-</span></div>
-          </div>
 
-          <!-- 5h Volcengine Window -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>⏱️ 5小时订阅额度窗口 (<span id="volcReset" style="color:var(--accent);">-</span>)</span>
-              <span id="volcPct" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+          <div class="card-hero">
+            <div>
+              <div class="hero-num" id="volcHeroVal">100%</div>
+              <div class="hero-caption">5h 剩余配额 · 模型 <span id="volcModel" style="color:var(--accent); font-weight:600;">-</span></div>
             </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="volcBar" style="width: 0%;"></div>
+            <div class="hero-right">
+              <span class="highlight-pill" id="volcLatency">- ms</span>
+              <span style="font-size:11px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" id="volcMsg">-</span>
             </div>
           </div>
 
-          <!-- 7d Weekly Volcengine Window -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>📅 7天周额度窗口 (<span id="volcWkReset" style="color:var(--purple);">-</span>)</span>
-              <span id="volcWkHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
+          <div class="progress-stack">
+            <div class="progress-box">
+              <div class="progress-header">
+                <span><strong>5小时窗口</strong> · <span id="volcReset" style="color:var(--accent);">-</span></span>
+                <span id="volcPct" style="font-family:ui-monospace,monospace;">0%</span>
+              </div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="volcBar" style="width: 0%;"></div></div>
             </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="volcWkBar" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <!-- Monthly Volcengine Window -->
-          <div class="progress-box">
-            <div class="progress-header">
-              <span>🗓️ 月度总额度窗口 (<span id="volcMoReset" style="color:var(--green);">-</span>)</span>
-              <span id="volcMoHuman" style="font-family:ui-monospace,SFMono-Regular,monospace;">0%</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-green" id="volcMoBar" style="width: 0%;"></div>
+            <div class="progress-box">
+              <div class="progress-header">
+                <span><strong>7天周窗口</strong> · <span id="volcWkReset" style="color:var(--purple);">-</span></span>
+                <span id="volcWkHuman" style="font-family:ui-monospace,monospace;">0%</span>
+              </div>
+              <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="volcWkBar" style="width: 0%;"></div></div>
             </div>
           </div>
 
-          <!-- Expiration Timestamps Summary -->
-          <div style="margin-top: 12px; background: rgba(13, 17, 23, 0.7); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px;">
-            <div style="font-size: 11px; color: var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
-              <span>⏰ 5小时重置到期：</span>
-              <span class="highlight-pill" id="volc5hExpire">随时可用</span>
+          <details class="card-more">
+            <summary>
+              <span>月度总额度与重置到期时间表</span>
+              <span class="more-chevron">▾</span>
+            </summary>
+            <div class="card-more-body">
+              <div class="progress-box">
+                <div class="progress-header">
+                  <span><strong>月度总窗口</strong> · <span id="volcMoReset" style="color:var(--green);">-</span></span>
+                  <span id="volcMoHuman" style="font-family:ui-monospace,monospace;">0%</span>
+                </div>
+                <div class="progress-bar-bg"><div class="progress-bar-fill fill-green" id="volcMoBar" style="width: 0%;"></div></div>
+              </div>
+              <div class="stat-list">
+                <div class="stat-row"><span>5小时重置到期</span><span class="val" id="volc5hExpire">随时可用</span></div>
+                <div class="stat-row"><span>7天周重置到期</span><span class="val" id="volcWkExpire">-</span></div>
+                <div class="stat-row"><span>月度重置到期</span><span class="val" id="volcMoExpire">-</span></div>
+              </div>
             </div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; display:flex; justify-content:space-between; align-items:center;">
-              <span>📅 7天配额重置到期：</span>
-              <span style="font-family:ui-monospace; font-size:11px; color:var(--text);" id="volcWkExpire">-</span>
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; display:flex; justify-content:space-between; align-items:center;">
-              <span>🗓️ 月度配额重置到期：</span>
-              <span style="font-family:ui-monospace; font-size:11px; color:var(--text);" id="volcMoExpire">-</span>
-            </div>
-          </div>
+          </details>
         </div>
       </div>
     </div>
@@ -768,7 +875,7 @@
               <button class="btn btn-primary" onclick="dispatchRealAgentTask()">🚀 立即派发执行</button>
               <button class="btn" onclick="createMcTask()">📝 仅记录卡片</button>
             </div>
-            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; padding:8px 10px; background:rgba(13,17,23,0.55); border:1px solid var(--card-border); border-radius:8px; font-size:12px;">
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; padding:8px 10px; background:var(--surface-inset); border:1px solid var(--card-border); border-radius:8px; font-size:12px;">
               <span style="color:var(--text-muted); font-weight:500;">🔀 多 Agent 并行对比：</span>
               <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><input type="checkbox" class="fanout-cb" value="antigravity" checked> ⚡ Antigravity</label>
               <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><input type="checkbox" class="fanout-cb" value="workbuddy" checked> 🤖 WorkBuddy</label>
@@ -1027,6 +1134,22 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
 
   </div>
 
+  <!-- Raycast-Style Global Command Palette (Cmd+K) -->
+  <div class="cmd-overlay" id="cmdPaletteOverlay" onclick="if(event.target===this) closeCmdPalette()">
+    <div class="cmd-palette">
+      <div class="cmd-input-wrap">
+        <svg class="ico" style="color:var(--accent);" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="cmdPaletteInput" class="cmd-input" placeholder="输入命令过滤，或直接输入问题/任务按 Enter 执行..." autocomplete="off">
+        <kbd class="nav-kbd">ESC</kbd>
+      </div>
+      <div class="cmd-list" id="cmdPaletteList"></div>
+      <div class="cmd-footer">
+        <span>↑↓ 选择 · Enter 执行</span>
+        <span>⌘K 唤起面板 · ⌘J 对话台</span>
+      </div>
+    </div>
+  </div>
+
   <!-- Fan-Out Side-by-Side Comparison Modal -->
   <div class="modal-overlay" id="fanoutCompareModal" onclick="if(event.target===this) closeFanoutCompare()">
     <div class="modal" style="width:min(1180px, 94vw); max-width:94vw; max-height:88vh; display:flex; flex-direction:column;">
@@ -1191,9 +1314,12 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       document.getElementById('agCache').innerText = `${tk.cache_savings_ratio || '1.0x'} (${Math.round((tk.total_cached || 0) / 1000000 * 10) / 10}M 命中)`;
       document.getElementById('agLast').innerText = ag.last_active || '暂无';
 
-      // 1.1 Antigravity 5h Quota Bar (90% 警戒线)
+      // 1.1 Antigravity 5h Quota Bar
       const ag5h = q.five_hour_usage || {};
       const ag5hPct = clampPct(ag5h.percent || 0);
+      const agRem5h = ag5h.remaining_percent !== undefined ? ag5h.remaining_percent : Math.max(0, 100 - ag5hPct);
+      const agHeroEl = document.getElementById('agHeroVal');
+      if (agHeroEl) agHeroEl.innerText = `${Math.round(agRem5h)}%`;
       document.getElementById('ag5hCountdown').innerText = ag5h.reset_countdown_human || '滑动重置';
       document.getElementById('ag5hHuman').innerText = ag5h.human_used ? ag5h.human_used : `${ag5hPct}%`;
       const ag5hBar = document.getElementById('ag5hBar');
@@ -1259,6 +1385,9 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       // 2.1 Codex 5h Quota Bar
       const cdx5h = cdx.five_hour_usage || {};
       const cdx5hPct = clampPct(cdx5h.percent || 0);
+      const cdxHeroRem = cdx5h.remaining_percent !== undefined ? cdx5h.remaining_percent : Math.max(0, 100 - cdx5hPct);
+      const cdxHeroEl = document.getElementById('cdxHeroVal');
+      if (cdxHeroEl) cdxHeroEl.innerText = `${Math.round(cdxHeroRem)}%`;
       document.getElementById('cdx5hCountdown').innerText = cdx5h.reset_countdown_human || '随时可用';
       document.getElementById('cdx5hHuman').innerText = cdx5h.human_used || `${cdx5hPct}%`;
       const cdx5hBar = document.getElementById('cdx5hBar');
@@ -1289,13 +1418,13 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       const rc = cdx.reset_credits || { available_count: 0, items: [] };
       const rcCount = rc.available_count || 0;
       const rcCountEl = document.getElementById('cdxResetCreditCount');
-      if (rcCountEl) rcCountEl.innerText = `可用 ${rcCount}`;
+      if (rcCountEl) rcCountEl.innerText = `重置券 可用 ${rcCount}`;
       const rcListEl = document.getElementById('cdxResetCreditList');
       if (rcListEl) {
         if (rc.items && rc.items.length > 0) {
           rcListEl.innerHTML = rc.items.map(item => `
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:rgba(22,27,34,0.8); border:1px solid var(--card-border); border-radius:6px; padding:7px 9px;">
-              <div style="font-size:12px; font-weight:600; color:var(--text);">${escapeHtml(item.title)}</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:6px; padding:6px 9px;">
+              <div style="font-size:11.5px; font-weight:600; color:var(--text);">${escapeHtml(item.title)}</div>
               <div style="font-size:11px; color:var(--text-muted); font-family:ui-monospace,monospace;">将于 ${escapeHtml(item.expires_at)} 到期</div>
             </div>
           `).join('');
@@ -1331,17 +1460,17 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       if (wb.today_checked_in) {
         wbBadge.className = 'badge badge-running';
         wbBadge.innerHTML = '<span class="dot"></span> 今日已签到';
-        todayStatus.innerText = '✅ 今日已完成打卡';
+        todayStatus.innerText = '已完成今日打卡';
         todayStatus.style.color = 'var(--green)';
-        btn.innerText = '🎉 今日已签到';
+        btn.innerText = '已签到';
         btn.className = 'btn';
         btn.disabled = false;
       } else {
         wbBadge.className = 'badge badge-warning';
         wbBadge.innerHTML = '<span class="dot"></span> 今日未签到';
-        todayStatus.innerText = '⏳ 今日尚未打卡';
+        todayStatus.innerText = '今日尚未打卡';
         todayStatus.style.color = 'var(--yellow)';
-        btn.innerText = '🎁 立即打卡';
+        btn.innerText = '立即签到';
         btn.className = 'btn btn-primary';
         btn.disabled = false;
       }
@@ -1388,6 +1517,8 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
 
       const q5h = volc.five_hour_quota || {};
       const pct = clampPct(q5h.percent || 0);
+      const volcHeroEl = document.getElementById('volcHeroVal');
+      if (volcHeroEl) volcHeroEl.innerText = `${Math.max(0, Math.round(100 - pct))}%`;
       document.getElementById('volcPct').innerText = `${q5h.human_used ? q5h.human_used + ' ' : ''}(${pct}%)`;
       document.getElementById('volcReset').innerText = q5h.reset_countdown_human || '滚动计算中';
       const bar = document.getElementById('volcBar');
@@ -1432,12 +1563,12 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
     let mcTaskFilter = 'all';
 
     const VIEW_META = {
-      quota: { title: '📊 配额监控大屏', sub: '多智能体统一监控 · 5小时/周/月订阅配额 · 自动签到与积分追踪' },
-      trends: { title: '📈 用量趋势与历史分析', sub: '近 7 天每日 Token 消耗柱状图 · 按模型分布排行 · 多智能体配额水位轨迹' },
-      mission: { title: '🎛️ Mission Control 综合控制面', sub: '多 Agent 任务派发 · 高危操作审批门控 · 实时会话与审计时间线' },
-      approvals: { title: '🛡️ 待审批队列 (Human-in-the-Loop)', sub: '集中审批所有 Agent 提交的高危命令、代码推送与敏感操作' },
-      tasks: { title: '📋 多 Agent 任务看板', sub: '跨 Antigravity / Codex / WorkBuddy / 火山引擎统一管理任务状态' },
-      sessions: { title: '🛰️ 实时会话与审计时间线', sub: '自动发现本机活跃 Agent 会话 · 完整留痕每次审批与状态流转' }
+      quota: { title: '配额监控大屏', sub: '四大平台实时剩余配额 · 滑动重置节点 · 自动签到与多引擎调度' },
+      trends: { title: '用量趋势分析', sub: '近 7 天每日 Token 消耗柱状图 · 按模型分布排行 · 多智能体配额水位轨迹' },
+      mission: { title: 'Mission Control 综合控制面', sub: '多 Agent 任务派发 · 高危操作审批门控 · 实时会话与审计时间线' },
+      approvals: { title: '待审批队列', sub: '集中审批所有 Agent 提交的高危命令、代码推送与敏感操作' },
+      tasks: { title: '多 Agent 任务看板', sub: '跨 Antigravity / Codex / WorkBuddy / 火山引擎统一管理任务状态' },
+      sessions: { title: '实时会话与审计时间线', sub: '自动发现本机活跃 Agent 会话 · 完整留痕每次审批与状态流转' }
     };
 
     function toggleMobileSidebar() {
@@ -1727,7 +1858,7 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
         const isRun = r.status === 'running';
         const dur = _formatRunDuration(r);
         return `
-          <div style="background:rgba(13,17,23,0.92); border:1px solid ${isRun ? 'rgba(63,185,80,0.5)' : 'var(--card-border)'}; border-radius:10px; padding:12px; display:flex; flex-direction:column; min-height:320px; max-height:66vh;">
+          <div style="background:var(--surface-inset); border:1px solid ${isRun ? 'rgba(52,199,89,0.5)' : 'var(--card-border)'}; border-radius:10px; padding:12px; display:flex; flex-direction:column; min-height:320px; max-height:66vh;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--card-border); flex-wrap:wrap;">
               <div style="display:flex; align-items:center; gap:6px;">
                 <span class="highlight-pill">${mcAgentLabel(r.agent)}</span>
@@ -2101,8 +2232,8 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
             <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="6" fill="url(#barGrad)">
               <title>${escapeHtml(d.day)}: ${valLbl} (缓存命中 ${fmtTokens(d.cached || 0)})</title>
             </rect>
-            <text x="${(x + barW / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="#c9d1d9" font-size="11" font-family="ui-monospace,monospace">${valLbl}</text>
-            <text x="${(x + barW / 2).toFixed(1)}" y="${(H - 10).toFixed(1)}" text-anchor="middle" fill="#8b949e" font-size="11" font-family="ui-monospace,monospace">${lbl}</text>
+            <text x="${(x + barW / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" style="fill:var(--text);" font-size="11" font-family="ui-monospace,monospace">${valLbl}</text>
+            <text x="${(x + barW / 2).toFixed(1)}" y="${(H - 10).toFixed(1)}" text-anchor="middle" style="fill:var(--text-muted);" font-size="11" font-family="ui-monospace,monospace">${lbl}</text>
           </g>
         `;
       }).join('');
@@ -2111,11 +2242,11 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
         <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
           <defs>
             <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#58a6ff"/>
-              <stop offset="100%" stop-color="#1f6feb" stop-opacity="0.7"/>
+              <stop offset="0%" stop-color="#4f9cf9"/>
+              <stop offset="100%" stop-color="#2563eb" stop-opacity="0.72"/>
             </linearGradient>
           </defs>
-          <line x1="${padL}" y1="${padT + chartH}" x2="${W - padR}" y2="${padT + chartH}" stroke="rgba(240,246,252,0.12)" stroke-width="1"/>
+          <line x1="${padL}" y1="${padT + chartH}" x2="${W - padR}" y2="${padT + chartH}" style="stroke:var(--card-border);" stroke-width="1"/>
           ${barsSvg}
         </svg>
       `;
@@ -2170,12 +2301,12 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
           <svg viewBox="0 0 ${LW} ${LH}" style="width:100%; height:auto; display:block;">
             <line x1="${lpL}" y1="${thY.toFixed(1)}" x2="${LW - lpR}" y2="${thY.toFixed(1)}" stroke="rgba(248,81,73,0.35)" stroke-dasharray="4 4"/>
             <text x="2" y="${(thY + 4).toFixed(1)}" fill="#f85149" font-size="10">${cbThVal}%</text>
-            <line x1="${lpL}" y1="${lpT + ch}" x2="${LW - lpR}" y2="${lpT + ch}" stroke="rgba(240,246,252,0.12)"/>
-            <path d="${makePath('ag_5h_pct')}" fill="none" stroke="#58a6ff" stroke-width="2.2"/>
-            <path d="${makePath('cdx_5h_pct')}" fill="none" stroke="#3fb950" stroke-width="2.2"/>
-            <path d="${makePath('volc_wk_pct')}" fill="none" stroke="#d29922" stroke-width="2.2"/>
-            <text x="${lpL}" y="${LH - 6}" fill="#8b949e" font-size="10" font-family="ui-monospace,monospace">${firstT}</text>
-            <text x="${LW - lpR}" y="${LH - 6}" text-anchor="end" fill="#8b949e" font-size="10" font-family="ui-monospace,monospace">${lastT}</text>
+            <line x1="${lpL}" y1="${lpT + ch}" x2="${LW - lpR}" y2="${lpT + ch}" style="stroke:var(--card-border);"/>
+            <path d="${makePath('ag_5h_pct')}" fill="none" stroke="#4f9cf9" stroke-width="2.2"/>
+            <path d="${makePath('cdx_5h_pct')}" fill="none" stroke="#34c759" stroke-width="2.2"/>
+            <path d="${makePath('volc_wk_pct')}" fill="none" stroke="#e5a00d" stroke-width="2.2"/>
+            <text x="${lpL}" y="${LH - 6}" style="fill:var(--text-muted);" font-size="10" font-family="ui-monospace,monospace">${firstT}</text>
+            <text x="${LW - lpR}" y="${LH - 6}" text-anchor="end" style="fill:var(--text-muted);" font-size="10" font-family="ui-monospace,monospace">${lastT}</text>
           </svg>
         `;
       }
@@ -2761,14 +2892,193 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       };
     }
 
-    // 全局快捷键：Cmd+K / Ctrl+K 切换指令抽屉，Esc 关闭
+    // =========================================================================
+    // Adaptive Theme Engine (System / Dark / Light) & Raycast Command Palette
+    // =========================================================================
+    const THEME_MODES = ['system', 'dark', 'light'];
+    const THEME_LABELS = { system: '自动外观', dark: '深色外观', light: '浅色外观' };
+    let currentThemeMode = localStorage.getItem('cockpit_theme_mode') || 'system';
+    const mediaDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+    function applyThemeMode(mode) {
+      currentThemeMode = THEME_MODES.includes(mode) ? mode : 'system';
+      localStorage.setItem('cockpit_theme_mode', currentThemeMode);
+      const effective = currentThemeMode === 'system' ? (mediaDark.matches ? 'dark' : 'light') : currentThemeMode;
+      document.documentElement.setAttribute('data-theme', effective);
+      const lbl = document.getElementById('themeToggleLabel');
+      if (lbl) lbl.innerText = THEME_LABELS[currentThemeMode];
+    }
+
+    function cycleThemeMode() {
+      const next = THEME_MODES[(THEME_MODES.indexOf(currentThemeMode) + 1) % THEME_MODES.length];
+      applyThemeMode(next);
+      showToast(`已切换为「${THEME_LABELS[next]}」`, '◐');
+    }
+
+    mediaDark.addEventListener?.('change', () => {
+      if (currentThemeMode === 'system') applyThemeMode('system');
+    });
+    applyThemeMode(currentThemeMode);
+
+    // Command Palette (Cmd+K)
+    let cmdSelectedIndex = 0;
+    let cmdFilteredItems = [];
+
+    const BASE_COMMANDS = [
+      { group: '视图导航', title: '切换到：配额监控大屏', sub: '查看四大平台实时剩余配额与重置倒计时', keywords: 'quota dashboard 配额 监控 首页 大屏', run: () => switchView('quota') },
+      { group: '视图导航', title: '切换到：Mission Control 综合控制面', sub: '多 Agent 任务派发、审批门控与实时执行日志', keywords: 'mission control 控制 任务 派发', run: () => switchView('mission') },
+      { group: '视图导航', title: '切换到：待审批队列', sub: '处理高危操作人工审批请求', keywords: 'approval 待审批 安全 门控', run: () => switchView('approvals') },
+      { group: '视图导航', title: '切换到：多 Agent 任务看板', sub: '查看并管理所有排队/运行中/已完成任务', keywords: 'tasks 任务 看板 列表', run: () => switchView('tasks') },
+      { group: '视图导航', title: '切换到：用量趋势分析', sub: '近 7 天 Token 消耗柱状图与水位轨迹', keywords: 'trends chart 趋势 统计 图表 token', run: () => switchView('trends') },
+      { group: '视图导航', title: '切换到：实时会话与审计', sub: '本机活跃会话自动发现与操作留痕', keywords: 'sessions audit 会话 审计 日志', run: () => switchView('sessions') },
+      { group: '快捷动作', title: '立即执行 WorkBuddy 每日签到', sub: '手动触发打卡领取每日 +100 积分', keywords: 'checkin workbuddy 签到 打卡 积分', run: () => triggerCheckin() },
+      { group: '快捷动作', title: '打开智能体流式对话台 (⌘J)', sub: '与 Antigravity / Codex / 火山 / WorkBuddy 实时对话', keywords: 'chat drawer 对话 聊天 提问', run: () => openChatDrawer() },
+      { group: '快捷动作', title: '生成今日四大智能体综合体检报告', sub: '在对话台一键流式输出全景配额日报', keywords: 'report 日报 体检 汇总 报告', run: () => sendQuickPrompt('生成今日四大智能体用量综合体检报告') },
+      { group: '快捷动作', title: '刷新全站配额与状态', sub: '立即重新拉取最新配额快照', keywords: 'refresh reload 刷新 同步', run: () => fetchStatus(true) },
+      { group: '快捷动作', title: '打开凭据与系统设置', sub: '配置 API Key、WorkBuddy 扫码续期与熔断阈值', keywords: 'settings config 设置 凭据 扫码 阈值', run: () => openConfigModal() },
+      { group: '外观与演练', title: '切换外观模式：跟随系统 / 深色 / 浅色', sub: '支持自动跟随 macOS 系统日夜主题', keywords: 'theme dark light 主题 深色 浅色 外观 亮色', run: () => cycleThemeMode() },
+      { group: '外观与演练', title: '模拟演练额度安全熔断告警', sub: '测试 Human-in-the-Loop 熔断审批弹窗与自动分流', keywords: 'circuit breaker test 熔断 演练 测试 告警', run: () => triggerCircuitBreakerTest() },
+    ];
+
+    function openCmdPalette() {
+      const ov = document.getElementById('cmdPaletteOverlay');
+      const inp = document.getElementById('cmdPaletteInput');
+      if (!ov || !inp) return;
+      ov.classList.add('open');
+      inp.value = '';
+      cmdSelectedIndex = 0;
+      renderCmdPalette('');
+      setTimeout(() => inp.focus(), 20);
+    }
+
+    function closeCmdPalette() {
+      const ov = document.getElementById('cmdPaletteOverlay');
+      if (ov) ov.classList.remove('open');
+    }
+
+    function renderCmdPalette(rawQuery) {
+      const q = (rawQuery || '').trim();
+      const ql = q.toLowerCase();
+      const dynamicItems = [];
+      if (q.length > 0) {
+        dynamicItems.push({
+          group: '直接执行',
+          title: `派发后台任务：「${q.slice(0, 46)}」`,
+          sub: '使用智能路由 (Auto) 自动挑选最充裕引擎后台执行',
+          run: async () => {
+            const resp = await fetch('/api/agents/dispatch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agent: 'auto', prompt: q })
+            });
+            const res = await resp.json();
+            if (res.success) {
+              showToast(`已派发给 ${(res.run?.agent || 'AUTO').toUpperCase()} 后台执行`, '🚀');
+              switchView('mission');
+            } else {
+              showToast(res.message || '派发失败', '⚠️');
+            }
+          }
+        });
+        dynamicItems.push({
+          group: '直接执行',
+          title: `在对话台向 AI 提问：「${q.slice(0, 46)}」`,
+          sub: '打开右侧流式对话抽屉并立即发送',
+          run: () => sendQuickPrompt(q)
+        });
+      }
+
+      const matched = BASE_COMMANDS.filter(c => {
+        if (!ql) return true;
+        return (c.title + ' ' + c.sub + ' ' + c.keywords).toLowerCase().includes(ql);
+      });
+      cmdFilteredItems = [...dynamicItems, ...matched];
+      if (cmdSelectedIndex >= cmdFilteredItems.length) cmdSelectedIndex = 0;
+
+      const listEl = document.getElementById('cmdPaletteList');
+      if (!listEl) return;
+      if (cmdFilteredItems.length === 0) {
+        listEl.innerHTML = '<div style="padding:18px; text-align:center; color:var(--text-muted); font-size:12.5px;">无匹配命令</div>';
+        return;
+      }
+
+      let lastGroup = '';
+      let html = '';
+      cmdFilteredItems.forEach((item, idx) => {
+        if (item.group !== lastGroup) {
+          lastGroup = item.group;
+          html += `<div class="cmd-group-title">${escapeHtml(lastGroup)}</div>`;
+        }
+        html += `
+          <div class="cmd-item ${idx === cmdSelectedIndex ? 'selected' : ''}" onmouseenter="cmdSelectedIndex=${idx}; updateCmdSelection()" onclick="executeCmdItem(${idx})">
+            <div class="cmd-item-left">
+              <span style="font-weight:550;">${escapeHtml(item.title)}</span>
+            </div>
+            <span class="cmd-item-sub">${escapeHtml(item.sub)}</span>
+          </div>
+        `;
+      });
+      listEl.innerHTML = html;
+    }
+
+    function updateCmdSelection() {
+      const nodes = document.querySelectorAll('#cmdPaletteList .cmd-item');
+      nodes.forEach((el, i) => el.classList.toggle('selected', i === cmdSelectedIndex));
+      const activeNode = nodes[cmdSelectedIndex];
+      if (activeNode) activeNode.scrollIntoView({ block: 'nearest' });
+    }
+
+    function executeCmdItem(idx) {
+      const item = cmdFilteredItems[idx];
+      if (!item) return;
+      closeCmdPalette();
+      item.run();
+    }
+
+    document.getElementById('cmdPaletteInput')?.addEventListener('input', (e) => {
+      cmdSelectedIndex = 0;
+      renderCmdPalette(e.target.value);
+    });
+
+    document.getElementById('cmdPaletteInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (cmdFilteredItems.length > 0) {
+          cmdSelectedIndex = (cmdSelectedIndex + 1) % cmdFilteredItems.length;
+          updateCmdSelection();
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (cmdFilteredItems.length > 0) {
+          cmdSelectedIndex = (cmdSelectedIndex - 1 + cmdFilteredItems.length) % cmdFilteredItems.length;
+          updateCmdSelection();
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        executeCmdItem(cmdSelectedIndex);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeCmdPalette();
+      }
+    });
+
+    // 全局快捷键：Cmd+K 打开命令面板，Cmd+J 切换右侧对话台，Esc 关闭浮层
     document.addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        const ov = document.getElementById('cmdPaletteOverlay');
+        if (ov && ov.classList.contains('open')) closeCmdPalette();
+        else openCmdPalette();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'j' || e.key === 'J')) {
         e.preventDefault();
         toggleChatDrawer();
         return;
       }
       if (e.key === 'Escape') {
+        closeCmdPalette();
+        closeFanoutCompare();
         closeChatDrawer();
         closeConfigModal();
         closeCircuitModal();
