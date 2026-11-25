@@ -56,11 +56,12 @@ def load_config():
                 return json.load(f)
         except Exception as e:
             print(f"[Config] 加载失败，使用默认配置: {e}")
-    # Return default
+    # Return default (bind 127.0.0.1 by default for local RCE/CSRF safety)
     return {
-        "server": {"host": "0.0.0.0", "port": 5999},
+        "server": {"host": "127.0.0.1", "port": 5999},
         "volcengine": {"enabled": True, "demo_mode": False},
-        "workbuddy": {"enabled": True, "demo_mode": False, "auto_checkin_enabled": True, "checkin_time": "09:00"}
+        "workbuddy": {"enabled": True, "demo_mode": False, "auto_checkin_enabled": True, "checkin_time": "09:00"},
+        "circuit_breaker": {"threshold": 90.0},
     }
 
 def save_config(cfg):
@@ -124,6 +125,10 @@ class AGUIEventHub:
     def unregister_client(self, q):
         with self.lock:
             self.clients.discard(q)
+
+    def client_count(self):
+        with self.lock:
+            return len(self.clients)
 
     def broadcast_event(self, event_name, payload):
         formatted = f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
@@ -253,6 +258,7 @@ def background_scheduler():
 
     last_volc_check = time.time()
     last_fast_check = time.time()
+    last_tick_emit = time.time()
     last_heartbeat = time.time()
     last_day_checked = ""
     last_wb_expired_notified_day = ""
@@ -284,8 +290,10 @@ def background_scheduler():
                         send_macos_notification("⚠️ WorkBuddy 定时签到失败", res.get("message", "请检查 Cookie 是否过期"))
                     update_all_status(notify=True)
 
-            # 2. 定时状态轮询与 90% 熔断监测 (Fast Poll: 2s)
-            if now_ts - last_fast_check >= 2.0:
+            # 2. 自适应状态轮询与熔断监测 (有活跃前端连接时 3s，后台静默无人查看时自动降频至 15s)
+            active_clients = EVENT_HUB.client_count()
+            poll_interval = 3.0 if active_clients > 0 else 15.0
+            if now_ts - last_fast_check >= poll_interval:
                 last_fast_check = now_ts
                 ag = get_antigravity_status()
                 cdx = get_codex_status()
@@ -353,16 +361,18 @@ def background_scheduler():
 
                 if trigger_payload:
                     EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", trigger_payload)
-                    send_macos_notification("🚨 90% 额度安全熔断", trigger_payload.get("message", "请尽快处理人机协同审批"))
+                    send_macos_notification(f"🚨 {cfg_threshold:g}% 额度安全熔断", trigger_payload.get("message", "请尽快处理人机协同审批"))
 
-                if changed:
+                if changed and active_clients > 0:
                     EVENT_HUB.broadcast_event("STATE_DELTA", snapshot)
 
-            # 3. 每 1 秒广播时钟流（平滑倒计时）
-            EVENT_HUB.broadcast_event("AGENT_TICK", {
-                "server_time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "timestamp": int(now_ts)
-            })
+            # 3. 每 10 秒对时同步（仅在有客户端连接时发送，前端本地每秒平滑走表）
+            if active_clients > 0 and (now_ts - last_tick_emit >= 10.0):
+                last_tick_emit = now_ts
+                EVENT_HUB.broadcast_event("AGENT_TICK", {
+                    "server_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": int(now_ts)
+                })
 
             # 4. 每 15 秒心跳保活
             if now_ts - last_heartbeat >= 15.0:
@@ -388,24 +398,67 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        exc_type, _, _ = sys.exc_info()
+        if exc_type and issubclass(exc_type, (BrokenPipeError, ConnectionResetError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
 class CockpitHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+    def _allowed_origin(self):
+        origin = str(self.headers.get("Origin") or "").strip()
+        if not origin:
+            return None
+        try:
+            op = urlparse(origin)
+            ohost = (op.hostname or "").lower()
+            req_host = str(self.headers.get("Host") or "").split(":")[0].lower()
+            if ohost in ("127.0.0.1", "localhost", "::1") or (req_host and ohost == req_host):
+                return origin
+        except Exception:
+            pass
+        return ""
+
+    def _check_write_security(self):
+        # 1. Block cross-site browser requests (CSRF protection against localhost RCE)
+        origin_check = self._allowed_origin()
+        if origin_check == "":
+            self.send_json({"success": False, "message": "拒绝跨站请求 (Origin 未授权)"}, code=403)
+            return False
+        # 2. Require loopback IP (or configured server.api_token) for state-mutating POSTs
+        client_ip = (self.client_address[0] if self.client_address else "")
+        if client_ip not in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+            cfg_tok = str((load_config().get("server") or {}).get("api_token") or "").strip()
+            auth_hdr = str(self.headers.get("Authorization") or "").strip()
+            if not cfg_tok or auth_hdr != f"Bearer {cfg_tok}":
+                self.send_json(
+                    {"success": False, "message": "安全拦截：非本机写操作需在 config.json 配置 server.api_token 并携带 Bearer 鉴权"},
+                    code=403,
+                )
+                return False
+        return True
 
     def send_json(self, data, code=200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        allowed_orig = self._allowed_origin()
+        if allowed_orig:
+            self.send_header("Access-Control-Allow-Origin", allowed_orig)
         self.end_headers()
         self.wfile.write(body)
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        allowed_orig = self._allowed_origin()
+        if allowed_orig:
+            self.send_header("Access-Control-Allow-Origin", allowed_orig)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Cache-Control")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Cache-Control, Authorization")
         self.end_headers()
 
     def do_GET(self):
@@ -433,7 +486,9 @@ class CockpitHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-transform")
             self.send_header("Connection", "keep-alive")
             self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            allowed_orig = self._allowed_origin()
+            if allowed_orig:
+                self.send_header("Access-Control-Allow-Origin", allowed_orig)
             self.end_headers()
 
             client_queue = EVENT_HUB.register_client()
@@ -512,6 +567,7 @@ class CockpitHandler(BaseHTTPRequestHandler):
                 volc_cfg[f"{secret_key}_configured"] = bool(raw_val and str(raw_val).strip())
                 volc_cfg[f"{secret_key}_masked"] = _mask_secret(raw_val)
             wb_cfg = safe_cfg.setdefault("workbuddy", {})
+            wb_cfg["checkin_url"] = wb_cfg.get("checkin_url") or "https://www.workbuddy.cn/billing/meter/daily-checkin"
             for secret_key in ("token", "cookie", "refresh_token"):
                 raw_val = wb_cfg.pop(secret_key, "")
                 wb_cfg[f"{secret_key}_configured"] = bool(raw_val and str(raw_val).strip())
@@ -537,6 +593,9 @@ class CockpitHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if not self._check_write_security():
+            return
 
         try:
             content_len = int(self.headers.get("Content-Length", 0))
@@ -590,6 +649,12 @@ class CockpitHandler(BaseHTTPRequestHandler):
                 if "checkin_time" in wb_update and not _is_valid_hhmm(wb_update["checkin_time"]):
                     self.send_json({"success": False, "message": "签到时间格式错误，请使用 HH:MM（如 09:00）"}, code=400)
                     return
+                # Avoid credential conflict: explicit new token clears old cookie; explicit new cookie clears old token
+                if wb_update.get("token"):
+                    wb_update.setdefault("cookie", "")
+                elif wb_update.get("cookie"):
+                    wb_update.setdefault("token", "")
+                    wb_update.setdefault("refresh_token", "")
                 cfg.setdefault("workbuddy", {}).update(wb_update)
             if isinstance(req_json.get("server"), dict):
                 cfg.setdefault("server", {}).update(req_json["server"])
@@ -629,17 +694,19 @@ class CockpitHandler(BaseHTTPRequestHandler):
             self.send_json({"success": True, "message": msg})
             return
 
-        # 4. 模拟测试 90% 熔断拦截 (方便用户即时测试体验)
+        # 4. 模拟测试安全熔断拦截 (方便用户即时测试体验)
         if path == "/api/circuit_breaker/test":
             with STATUS_LOCK:
+                th = float(CIRCUIT_BREAKER.get("threshold") or 90.0)
+                mock_pct = min(99.9, round(th + 2.4, 1))
                 CIRCUIT_BREAKER["triggered"] = True
                 CIRCUIT_BREAKER["agent"] = "Google Antigravity (模拟演练)"
-                CIRCUIT_BREAKER["current_usage"] = 92.4
-                CIRCUIT_BREAKER["message"] = "【演练测试】Antigravity 5小时配额消耗已达 92.4% (超过 90% 警戒线)！即将触发官方限流。"
+                CIRCUIT_BREAKER["current_usage"] = mock_pct
+                CIRCUIT_BREAKER["message"] = f"【演练测试】Antigravity 5小时配额消耗已达 {mock_pct}% (超过 {th:g}% 警戒线)！即将触发官方限流。"
                 CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
                 cb_snapshot = dict(CIRCUIT_BREAKER)
             EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", cb_snapshot)
-            self.send_json({"success": True, "message": "90% 熔断审批卡片已推送到前端界面！"})
+            self.send_json({"success": True, "message": f"{th:g}% 熔断审批卡片已推送到前端界面！"})
             return
 
         # 4.5 Mission Control APIs (多 Agent 任务与审批治理)
@@ -770,6 +837,15 @@ class CockpitHandler(BaseHTTPRequestHandler):
         # 4.6 Unified Multi-Agent Dispatch & Execution APIs (coder/agentapi style)
         if path == "/api/agents/dispatch":
             try:
+                with STATUS_LOCK:
+                    cb_paused = bool(CIRCUIT_BREAKER.get("paused"))
+                    cb_res = str(CIRCUIT_BREAKER.get("resolution") or "")
+                    cb_th = float(CIRCUIT_BREAKER.get("threshold") or 90.0)
+                    st_copy = dict(LATEST_STATUS)
+                if cb_paused and not req_json.get("force"):
+                    self.send_json({"success": False, "message": "⏸️ 当前处于熔断挂起保护状态，已拦截任务派发（可在熔断面板恢复或等待配额重置）"}, code=409)
+                    return
+
                 cfg = load_config()
                 def _on_run_update():
                     snap = mc.get_snapshot()
@@ -788,6 +864,9 @@ class CockpitHandler(BaseHTTPRequestHandler):
                     on_update=_on_run_update,
                     on_notify=lambda t, m: send_macos_notification(t, m, subtitle="多 Agent 调度执行"),
                     task_id=req_json.get("task_id"),
+                    latest_status=st_copy,
+                    threshold=cb_th,
+                    auto_fallback=("switch" in cb_res),
                 )
                 self.send_json({"success": True, "run": run_rec})
             except Exception as e:
@@ -796,6 +875,13 @@ class CockpitHandler(BaseHTTPRequestHandler):
 
         if path == "/api/agents/fanout":
             try:
+                with STATUS_LOCK:
+                    cb_paused = bool(CIRCUIT_BREAKER.get("paused"))
+                    st_copy = dict(LATEST_STATUS)
+                    cb_th = float(CIRCUIT_BREAKER.get("threshold") or 90.0)
+                if cb_paused and not req_json.get("force"):
+                    self.send_json({"success": False, "message": "⏸️ 当前处于熔断挂起保护状态，已拦截并行广播"}, code=409)
+                    return
                 agents = req_json.get("agents") or []
                 prompt = str(req_json.get("prompt") or "").strip()
                 if not agents or not isinstance(agents, list):
@@ -825,6 +911,9 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         on_update=_on_run_update,
                         on_notify=lambda t, m: send_macos_notification(t, m, subtitle="多 Agent 并行广播"),
                         batch_id=batch_id,
+                        latest_status=st_copy,
+                        threshold=cb_th,
+                        auto_fallback=False,
                     )
                     dispatched.append(rec)
                 self.send_json({"success": True, "batch_id": batch_id, "runs": dispatched, "count": len(dispatched)})
@@ -878,14 +967,17 @@ class CockpitHandler(BaseHTTPRequestHandler):
 
         # 5. AG-UI 智能体流式对话引擎 (Agent Chat & Command Streaming)
         if path == "/api/agent/chat":
-            agent_id = str(req_json.get("agent", "antigravity"))
+            agent_id = str(req_json.get("agent", "antigravity")).strip().lower()
             message = str(req_json.get("message", "")).strip()
+            msg_low = message.lower()
 
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "close")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            allowed_orig = self._allowed_origin()
+            if allowed_orig:
+                self.send_header("Access-Control-Allow-Origin", allowed_orig)
             self.end_headers()
 
             def send_stream_event(ev_name, p):
@@ -960,7 +1052,7 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         f"   - 5小时/7天/月度配额：{volc_s.get('five_hour_quota', {}).get('percent', 0)}% · {volc_s.get('weekly_quota', {}).get('percent', 0)}% · {volc_s.get('monthly_quota', {}).get('percent', 0)}%\n\n",
                         f"🛡️ **安全熔断评估**：{cb_summary}"
                     ]
-                elif "codex" in message.lower() or agent_id == "codex":
+                elif any(k in msg_low for k in ["配额", "额度", "用量", "剩余", "操作数", "延迟", "连通", "测速"]) and ("codex" in msg_low or (agent_id == "codex" and not any(k in msg_low for k in ["写", "代码", "解释", "分析", "修复", "翻译", "脚本"]))):
                     send_stream_event("TOOL_CALL_START", {"tool": "query_codex_status", "args": {}})
                     time.sleep(0.2)
                     cdx_s = get_codex_status()
@@ -974,7 +1066,7 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         f"- 📅 **7天周总配额**：{cwk.get('human_used', '0%')} (重置: {cwk.get('reset_countdown_human')} · {cwk.get('reset_expire_time')})\n",
                         f"- 📊 **本地日志总数**：{cdx_s.get('total_log_events', 0):,} 条 ({cdx_s.get('data_source', '')})"
                     ]
-                elif any(k in message.lower() for k in ["火山", "方舟", "volcengine"]) or agent_id == "volcengine":
+                elif any(k in msg_low for k in ["配额", "额度", "用量", "剩余", "延迟", "连通", "测速"]) and (any(k in msg_low for k in ["火山", "方舟", "volcengine"]) or agent_id == "volcengine"):
                     send_stream_event("TOOL_CALL_START", {"tool": "test_volcengine_latency", "args": {}})
                     time.sleep(0.2)
                     volc_s = get_volcengine_plan_status(load_config().get("volcengine", {}))
@@ -990,14 +1082,16 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         f"- 📅 **7天周配额**：{volc_s.get('weekly_quota', {}).get('human_used', '0%')} ({volc_s.get('weekly_quota', {}).get('percent', 0)}%，重置: {volc_s.get('weekly_quota', {}).get('reset_expire_time', '-')})\n",
                         f"- 🗓️ **月度总额度**：{volc_s.get('monthly_quota', {}).get('human_used', '0%')} ({volc_s.get('monthly_quota', {}).get('percent', 0)}%，重置: {volc_s.get('monthly_quota', {}).get('reset_expire_time', '-')})"
                     ]
-                elif "配额" in message or "额度" in message or "用量" in message:
+                elif ("配额" in message or "额度" in message or "用量" in message) and ("antigravity" in msg_low or "官方" in message):
                     send_stream_event("TOOL_CALL_START", {"tool": "query_official_quota", "args": {"target": agent_id}})
                     time.sleep(0.2)
                     ag_stat = get_antigravity_status()
                     q_info = ag_stat.get("quota", {}).get("five_hour_usage", {})
                     ag_pct = q_info.get("percent", 0)
+                    with STATUS_LOCK:
+                        th_now = float(CIRCUIT_BREAKER.get("threshold") or 90.0)
                     send_stream_event("TOOL_CALL_END", {"tool": "query_official_quota", "result": f"{ag_stat.get('data_source', '数据获取成功')}"})
-                    warn_text = "🚨 已触碰 90% 熔断阈值，建议立即处理。" if ag_pct >= 90 else "安全（当前未触碰 90% 熔断阈值）。"
+                    warn_text = f"🚨 已触碰 {th_now:g}% 熔断阈值，建议立即处理。" if ag_pct >= th_now else f"安全（当前未触碰 {th_now:g}% 熔断阈值）。"
                     answer_parts = [
                         f"已为您实时核实 **{ag_stat.get('name')}** 的最新配额状态：\n\n",
                         f"- 👑 **当前订阅**：{ag_stat.get('user_tier', 'Google AI Pro')} ({ag_stat.get('data_source', '')})\n",
@@ -1006,34 +1100,48 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         f"- ⏰ **重置到期时间**：{q_info.get('reset_countdown_human')} ({q_info.get('reset_expire_time', '随时可用')})\n",
                         f"- 🛡️ **警戒状态**：{warn_text}"
                     ]
-                elif "熔断" in message or "超额" in message:
-                    send_stream_event("TOOL_CALL_START", {"tool": "trigger_circuit_breaker_test", "args": {"threshold": 90.0}})
-                    time.sleep(0.3)
+                elif "演练" in message and ("熔断" in message or "超额" in message):
                     with STATUS_LOCK:
+                        th_now = float(CIRCUIT_BREAKER.get("threshold") or 90.0)
+                        mock_pct = min(99.9, round(th_now + 2.5, 1))
                         CIRCUIT_BREAKER["triggered"] = True
                         CIRCUIT_BREAKER["agent"] = "Google Antigravity"
-                        CIRCUIT_BREAKER["current_usage"] = 92.5
-                        CIRCUIT_BREAKER["message"] = "【演练测试】Antigravity 5小时额度已达 92.5%，触碰 90% 安全警戒线！已进入 Human-in-the-Loop 人机协同审批流程。"
+                        CIRCUIT_BREAKER["current_usage"] = mock_pct
+                        CIRCUIT_BREAKER["message"] = f"【演练测试】Antigravity 5小时额度已达 {mock_pct}%，触碰 {th_now:g}% 安全警戒线！已进入 Human-in-the-Loop 人机协同审批流程。"
                         CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
                         cb_snapshot = dict(CIRCUIT_BREAKER)
+                    send_stream_event("TOOL_CALL_START", {"tool": "trigger_circuit_breaker_test", "args": {"threshold": th_now}})
+                    time.sleep(0.2)
                     EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", cb_snapshot)
-                    send_stream_event("TOOL_CALL_END", {"tool": "trigger_circuit_breaker_test", "result": "已成功向全网广播 90% 熔断拦截事件"})
+                    send_stream_event("TOOL_CALL_END", {"tool": "trigger_circuit_breaker_test", "result": f"已成功广播 {th_now:g}% 熔断拦截事件"})
                     answer_parts = [
-                        "🚨 **安全熔断已触发！**\n\n",
-                        "当前检测到 Google Antigravity 5小时额度消耗已达 **92.5%**（超过预设的 **90%** 警戒线）。\n",
-                        "根据 AG-UI 协议规范，后台已触发 **Human-in-the-Loop（人机协同审批）** 机制并弹出紧急决策面板，请在屏幕中央选择处理方案（如切换备用模型或挂起任务）。"
+                        "🚨 **安全熔断演练已触发！**\n\n",
+                        f"当前模拟检测到 Google Antigravity 5小时额度消耗已达 **{mock_pct}%**（超过预设的 **{th_now:g}%** 警戒线）。\n",
+                        "后台已触发 **Human-in-the-Loop（人机协同审批）** 机制并弹出紧急决策面板，请在屏幕中央选择处理方案（如智能分流至空闲引擎或挂起任务）。"
                     ]
                 else:
-                    # 真实调用选定的 Agent 进行流式对话 (Antigravity agy CLI / 火山引擎方舟 API / Codex / WorkBuddy)
-                    send_stream_event("TOOL_CALL_START", {"tool": f"invoke_{agent_id}_agent", "args": {"prompt": message[:80]}})
+                    # 真实调用选定的 Agent 进行流式对话 (支持 auto 智能路由及熔断自动导流)
                     cfg = load_config()
+                    with STATUS_LOCK:
+                        st_copy = dict(LATEST_STATUS)
+                        cb_th = float(CIRCUIT_BREAKER.get("threshold") or 90.0)
+                        cb_res = str(CIRCUIT_BREAKER.get("resolution") or "")
+                    send_stream_event("TOOL_CALL_START", {"tool": f"invoke_{agent_id}_agent", "args": {"prompt": message[:80]}})
                     streamed_chars = [0]
                     try:
                         def _emit_delta(ch):
                             streamed_chars[0] += len(ch)
                             send_stream_event("TEXT_MESSAGE_CHUNK", {"delta": ch})
 
-                        runner.stream_direct_chat(agent_id, message, cfg, _emit_delta)
+                        runner.stream_direct_chat(
+                            agent_id,
+                            message,
+                            cfg,
+                            _emit_delta,
+                            latest_status=st_copy,
+                            threshold=cb_th,
+                            auto_fallback=("switch" in cb_res),
+                        )
                         send_stream_event("TOOL_CALL_END", {"tool": f"invoke_{agent_id}_agent", "result": f"已真实调用 {agent_id.upper()}，返回 {streamed_chars[0]} 字符"})
                         answer_parts = []
                     except Exception as run_err:

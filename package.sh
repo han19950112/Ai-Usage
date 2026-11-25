@@ -23,6 +23,7 @@ zip -r -q -X "$PACKAGE_NAME" "$DIR_NAME" \
     -x "$DIR_NAME/.git/*" \
     -x "$DIR_NAME/config.json" \
     -x "$DIR_NAME/checkin_history.json" \
+    -x "$DIR_NAME/mission_control.db*" \
     -x "$DIR_NAME/server.log" \
     -x "$DIR_NAME/server_err.log" \
     -x "$DIR_NAME/server.pid" \

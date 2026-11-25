@@ -77,7 +77,8 @@ def poll_workbuddy_web_login(save_callback=None):
         refresh_token = str(data.get("refreshToken") or data.get("refresh_token") or "").strip()
         if code in (0, 200, "0", "200") and access_token:
             if save_callback:
-                save_callback({"token": access_token, "refresh_token": refresh_token})
+                # Clear stale web cookie so APISIX doesn't reject requests due to expired session cookie
+                save_callback({"token": access_token, "refresh_token": refresh_token, "cookie": ""})
             with _WB_CACHE_LOCK:
                 _WB_LIVE_CACHE["ts"] = 0.0
             with _WB_AUTH_LOCK:
@@ -161,7 +162,7 @@ def _wb_headers(config):
     cookie = str(config.get("cookie", "") or "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}" if not token.lower().startswith("bearer ") else token
-    if cookie:
+    elif cookie:
         headers["Cookie"] = cookie
     return headers
 
@@ -436,10 +437,11 @@ def get_workbuddy_status(config=None):
         "recent_history": []
     }
 
-    # 1. Process check
+    # 1. Process check (shared short-TTL ps cache)
     my_pid = os.getpid()
     try:
-        ps_output = subprocess.check_output(["ps", "-axo", "pid,command"], text=True, stderr=subprocess.DEVNULL)
+        from monitors import get_cached_ps_output
+        ps_output = get_cached_ps_output()
         for line in ps_output.splitlines():
             line_strip = line.strip()
             if "grep" in line_strip or "workbuddy.py" in line_strip:

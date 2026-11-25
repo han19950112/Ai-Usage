@@ -130,6 +130,9 @@ def log_activity(agent, event_type, message):
                 "INSERT INTO activity_logs (agent, event_type, message, created_at) VALUES (?, ?, ?, ?)",
                 (str(agent or "system"), str(event_type or "info"), str(message or "")[:500], _now_str()),
             )
+            conn.execute(
+                "DELETE FROM activity_logs WHERE id NOT IN (SELECT id FROM activity_logs ORDER BY id DESC LIMIT 500)"
+            )
             conn.commit()
         finally:
             conn.close()
@@ -548,6 +551,10 @@ def save_agent_run(run_rec):
                     str(run_rec.get("finished_at") or ""),
                 ),
             )
+            if str(run_rec.get("status")) != "running":
+                conn.execute(
+                    "DELETE FROM agent_runs WHERE status != 'running' AND id NOT IN (SELECT id FROM agent_runs ORDER BY started_ts DESC LIMIT 100)"
+                )
             conn.commit()
         finally:
             conn.close()

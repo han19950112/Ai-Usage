@@ -751,6 +751,7 @@
             <div class="mc-form-row">
               <input type="text" id="mcNewTitle" class="mc-input" style="flex:2; min-width:200px;" placeholder="输入要派发给 Agent 执行的真实指令（或任务标题）...">
               <select id="mcNewAgent" class="mc-input">
+                <option value="auto">🤖 智能路由 (自动选最充裕引擎)</option>
                 <option value="volcengine">🌋 火山引擎 Ark (实时流)</option>
                 <option value="antigravity">⚡ Antigravity (agy CLI)</option>
                 <option value="workbuddy">🤖 WorkBuddy (codebuddy)</option>
@@ -914,7 +915,7 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
         </div>
       </div>
       <div class="drawer-actions">
-        <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="triggerCircuitBreakerTest()" title="演练 90% 额度安全熔断">🧪 演练90%熔断</button>
+        <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="triggerCircuitBreakerTest()" title="演练额度安全熔断">🧪 演练熔断</button>
         <button class="btn" style="padding: 4px 8px; font-size: 11px;" onclick="clearChat()" title="清空对话记录">🗑️</button>
         <button class="btn" style="padding: 4px 8px; font-size: 12px;" onclick="closeChatDrawer()">✕</button>
       </div>
@@ -923,6 +924,7 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
     <div class="drawer-agent-bar">
       <label style="color:var(--text-muted); font-weight:500;">调度代理：</label>
       <select id="chatAgentSelect" class="agent-select">
+        <option value="auto">🤖 智能路由 (自动选最充裕引擎)</option>
         <option value="antigravity">⚡ Google Antigravity (官方内核)</option>
         <option value="volcengine">🌋 火山方舟 Coding API</option>
         <option value="codex">🧠 OpenAI Codex</option>
@@ -982,7 +984,7 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
         </div>
         <div class="circuit-row">
           <span style="color:var(--text-muted);">系统设防阈值：</span>
-          <span class="highlight-pill" style="color:var(--yellow); border-color:rgba(210,153,34,0.35);">90.0% (预设安全线)</span>
+          <span class="highlight-pill" id="cbThresholdPill" style="color:var(--yellow); border-color:rgba(210,153,34,0.35);">90.0% (预设安全线)</span>
         </div>
         <div class="circuit-msg" id="cbMsg">
           Antigravity 5小时额度已达 92.5%，触碰 90% 警戒线！为避免 Google 官方阶梯降级限流，请审批人机介入决策。
@@ -1127,10 +1129,11 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       return Math.min(100, Math.max(0, n));
     }
 
-    // 警戒线阈值定义：>=90% 红色高亮，70%-89.9% 黄色，<70% 绿色
+    // 警戒线阈值定义：>=预设熔断阈值 红色高亮，70%-阈值 黄色，<70% 绿色
     function getBarFillClass(pct) {
-      if (pct >= 90) return 'fill-red';
-      if (pct >= 70) return 'fill-yellow';
+      const th = Number(window.latestCbThreshold) || 90;
+      if (pct >= th) return 'fill-red';
+      if (pct >= Math.min(70, th - 10)) return 'fill-yellow';
       return 'fill-green';
     }
 
@@ -1162,6 +1165,9 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
 
     function renderDashboard(data) {
       document.getElementById('serverTime').innerText = data.server_time || new Date().toLocaleTimeString();
+      if (data.circuit_breaker && data.circuit_breaker.threshold) {
+        window.latestCbThreshold = data.circuit_breaker.threshold;
+      }
 
       // ================= 1. Google Antigravity =================
       const ag = data.antigravity || {};
@@ -2153,6 +2159,8 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
         }).join(' ');
         const firstT = escapeHtml(String(snaps[0].created_at || '').slice(5, 16));
         const lastT = escapeHtml(String(snaps[snaps.length - 1].created_at || '').slice(5, 16));
+        const cbThVal = Math.max(50, Math.min(99.5, Number(window.latestCbThreshold) || 90));
+        const thY = lpT + ch * (1 - cbThVal / 100);
         lineBox.innerHTML = `
           <div style="display:flex; gap:14px; font-size:11.5px; margin-bottom:6px; color:var(--text-muted);">
             <span><span style="color:#58a6ff;">●</span> Antigravity 5h</span>
@@ -2160,8 +2168,8 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
             <span><span style="color:#d29922;">●</span> 火山引擎 7d</span>
           </div>
           <svg viewBox="0 0 ${LW} ${LH}" style="width:100%; height:auto; display:block;">
-            <line x1="${lpL}" y1="${lpT + ch * 0.1}" x2="${LW - lpR}" y2="${lpT + ch * 0.1}" stroke="rgba(248,81,73,0.35)" stroke-dasharray="4 4"/>
-            <text x="2" y="${lpT + ch * 0.1 + 4}" fill="#f85149" font-size="10">90%</text>
+            <line x1="${lpL}" y1="${thY.toFixed(1)}" x2="${LW - lpR}" y2="${thY.toFixed(1)}" stroke="rgba(248,81,73,0.35)" stroke-dasharray="4 4"/>
+            <text x="2" y="${(thY + 4).toFixed(1)}" fill="#f85149" font-size="10">${cbThVal}%</text>
             <line x1="${lpL}" y1="${lpT + ch}" x2="${LW - lpR}" y2="${lpT + ch}" stroke="rgba(240,246,252,0.12)"/>
             <path d="${makePath('ag_5h_pct')}" fill="none" stroke="#58a6ff" stroke-width="2.2"/>
             <path d="${makePath('cdx_5h_pct')}" fill="none" stroke="#3fb950" stroke-width="2.2"/>
@@ -2401,8 +2409,12 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
 
     function openCircuitModal(cbData) {
       const modal = document.getElementById('circuitModal');
+      const th = cbData.threshold || window.latestCbThreshold || 90.0;
+      window.latestCbThreshold = th;
       document.getElementById('cbAgent').innerText = cbData.agent || 'Google Antigravity';
-      document.getElementById('cbUsage').innerText = (cbData.current_usage || 90.0) + '%';
+      document.getElementById('cbUsage').innerText = (cbData.current_usage || th) + '%';
+      const thPill = document.getElementById('cbThresholdPill');
+      if (thPill) thPill.innerText = `${th}% (预设安全线)`;
       if (cbData.message) document.getElementById('cbMsg').innerText = cbData.message;
       modal.style.display = 'flex';
     }
@@ -2684,7 +2696,7 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
         } catch (err) {}
       });
 
-      // 3. 毫秒级时钟走秒 (AGENT_TICK)
+      // 3. 轻量对时同步 (AGENT_TICK) + 本地每秒平滑走钟
       eventSource.addEventListener('AGENT_TICK', (e) => {
         try {
           const tick = JSON.parse(e.data);
@@ -2693,6 +2705,16 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
           }
         } catch (err) {}
       });
+      if (!window._cockpitLocalClockStarted) {
+        window._cockpitLocalClockStarted = true;
+        setInterval(() => {
+          const el = document.getElementById('serverTime');
+          if (!el) return;
+          const now = new Date();
+          const pad = n => String(n).padStart(2, '0');
+          el.innerText = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        }, 1000);
+      }
 
       // 4. 90% 额度安全熔断拦截 (HUMAN_INTERACTION_REQUIRED)
       eventSource.addEventListener('HUMAN_INTERACTION_REQUIRED', (e) => {

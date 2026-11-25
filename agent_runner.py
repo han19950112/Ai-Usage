@@ -87,6 +87,61 @@ def get_available_engines(config=None):
     }
 
 
+def resolve_target_agent(preferred_agent, latest_status=None, config=None, threshold=90.0, auto_fallback=False):
+    """
+    Resolve 'auto' or circuit-breaker fallback ('switch_backup'):
+    Returns (chosen_agent, reroute_note).
+    """
+    preferred = str(preferred_agent or "antigravity").strip().lower()
+    latest_status = latest_status or {}
+    engines = get_available_engines(config)
+
+    ag_q = (latest_status.get("antigravity") or {}).get("quota") or {}
+    cdx = latest_status.get("codex") or {}
+    volc = latest_status.get("volcengine") or {}
+    wb = latest_status.get("workbuddy") or {}
+
+    usage_map = {
+        "antigravity": max(
+            float((ag_q.get("five_hour_usage") or {}).get("percent") or 0.0),
+            float((ag_q.get("weekly_usage") or {}).get("percent") or 0.0),
+        ),
+        "codex": max(
+            float((cdx.get("five_hour_usage") or {}).get("percent") or 0.0),
+            float((cdx.get("weekly_usage") or {}).get("percent") or 0.0),
+        ),
+        "volcengine": max(
+            float((volc.get("five_hour_quota") or {}).get("percent") or 0.0),
+            float((volc.get("weekly_quota") or {}).get("percent") or 0.0),
+            float((volc.get("monthly_quota") or {}).get("percent") or 0.0),
+        ),
+        "workbuddy": float(wb.get("used_percent") or 0.0),
+    }
+
+    ready_candidates = [
+        (name, usage_map.get(name, 0.0))
+        for name, info in engines.items()
+        if info.get("ready")
+    ]
+    ready_candidates.sort(key=lambda x: x[1])
+
+    if preferred == "auto":
+        if ready_candidates:
+            best_name, best_pct = ready_candidates[0]
+            return best_name, f"🤖 智能路由已自动选择当前配额最充裕的引擎 {best_name.upper()} (当前水位 {best_pct:.1f}%)"
+        return "antigravity", ""
+
+    pref_pct = usage_map.get(preferred, 0.0)
+    if auto_fallback and pref_pct >= float(threshold or 90.0):
+        for cand_name, cand_pct in ready_candidates:
+            if cand_name != preferred and cand_pct < float(threshold or 90.0):
+                return (
+                    cand_name,
+                    f"🔄 熔断分流生效：{preferred.upper()} 已达 {pref_pct:.1f}% (≥{threshold:g}%)，已自动导流至空闲引擎 {cand_name.upper()} ({cand_pct:.1f}%)",
+                )
+    return preferred, ""
+
+
 def _append_output(run_id, text):
     if not text:
         return
@@ -246,9 +301,17 @@ def _build_cli_command(agent, prompt):
     raise RuntimeError(f"暂不支持的 Agent 执行器: {agent}")
 
 
-def stream_direct_chat(agent, message, config, on_chunk):
+def stream_direct_chat(agent, message, config, on_chunk, latest_status=None, threshold=90.0, auto_fallback=False):
     """Synchronously stream a real reply from the selected agent into on_chunk(delta)."""
-    agent = str(agent or "volcengine").strip().lower()
+    agent, reroute_note = resolve_target_agent(
+        agent,
+        latest_status=latest_status,
+        config=config,
+        threshold=threshold,
+        auto_fallback=auto_fallback,
+    )
+    if reroute_note:
+        on_chunk(f"> {reroute_note}\n\n")
     if agent == "volcengine":
         _stream_volcengine_chat(message, (config or {}).get("volcengine") or {}, on_chunk)
         return
@@ -275,9 +338,15 @@ def stream_direct_chat(agent, message, config, on_chunk):
             proc.kill()
 
 
-def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config=None, on_update=None, on_notify=None, task_id=None, batch_id=""):
+def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config=None, on_update=None, on_notify=None, task_id=None, batch_id="", latest_status=None, threshold=90.0, auto_fallback=False):
     """Spawn a real background agent run linked to Mission Control and return the run record."""
-    agent = str(agent or "antigravity").strip().lower()
+    agent, reroute_note = resolve_target_agent(
+        agent,
+        latest_status=latest_status,
+        config=config,
+        threshold=threshold,
+        auto_fallback=auto_fallback,
+    )
     prompt = str(prompt or "").strip()
     if not prompt:
         raise ValueError("任务指令 (prompt) 不能为空")
@@ -285,6 +354,9 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
     work_dir = os.path.expanduser(str(cwd or "").strip()) if cwd else os.getcwd()
     if not os.path.isdir(work_dir):
         work_dir = os.getcwd()
+
+    if reroute_note:
+        mc.log_activity(agent, "agent_rerouted", reroute_note)
 
     if task_id is not None:
         task = mc.update_task(
@@ -312,6 +384,7 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
         )
     run_id = "run-" + uuid.uuid4().hex[:8]
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    reroute_banner = f"{reroute_note}\n" if reroute_note else ""
     run_rec = {
         "id": run_id,
         "batch_id": str(batch_id or ""),
@@ -323,7 +396,7 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
         "status": "running",
         "pid": None,
         "exit_code": None,
-        "output": f"[{now_str}] 🚀 正在调度 {agent.upper()} 执行任务...\n工作目录: {work_dir}\n指令: {prompt}\n{'-' * 48}\n",
+        "output": f"[{now_str}] 🚀 正在调度 {agent.upper()} 执行任务...\n{reroute_banner}工作目录: {work_dir}\n指令: {prompt}\n{'-' * 48}\n",
         "started_ts": time.time(),
         "started_at": now_str,
         "updated_at": now_str,

@@ -262,10 +262,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWind
             return internalBackend
         }
 
-        // 4. 用户系统标准工作路径
-        let defaultHomeDir = NSString(string: "~/.gemini/antigravity/scratch/agent-cockpit").expandingTildeInPath
-        if FileManager.default.fileExists(atPath: "\(defaultHomeDir)/server.py") {
-            return defaultHomeDir
+        // 4. 用户工作路径兜底
+        let defaultRepoDir = NSString(string: "~/Documents/08_个人库/Ai-Usage").expandingTildeInPath
+        if FileManager.default.fileExists(atPath: "\(defaultRepoDir)/server.py") {
+            return defaultRepoDir
         }
 
         return candidateSameDir
@@ -274,18 +274,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWind
     func startLocalServer() {
         let projectDir = locateProjectDirectory()
         let startScript = "\(projectDir)/start.sh"
+        var env = ProcessInfo.processInfo.environment
+        let home = NSHomeDirectory()
+        let extraPaths = "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        if let existingPath = env["PATH"], !existingPath.isEmpty {
+            env["PATH"] = "\(extraPaths):\(existingPath)"
+        } else {
+            env["PATH"] = extraPaths
+        }
+        env["HOME"] = home
+
         if FileManager.default.isExecutableFile(atPath: startScript) {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/bin/bash")
             proc.arguments = [startScript, "--daemon"]
             proc.currentDirectoryURL = URL(fileURLWithPath: projectDir)
+            proc.environment = env
             try? proc.run()
         } else {
             // Direct python3 fallback
             let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            let pyBin = FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/python3") ? "/opt/homebrew/bin/python3" : "/usr/bin/python3"
+            proc.executableURL = URL(fileURLWithPath: pyBin)
             proc.arguments = ["\(projectDir)/server.py"]
             proc.currentDirectoryURL = URL(fileURLWithPath: projectDir)
+            proc.environment = env
             try? proc.run()
         }
     }

@@ -410,9 +410,10 @@ def get_antigravity_status():
         "details": {}
     }
 
-    # 1. 检测本地进程
+    # 1. 检测本地进程 (复用共享短期缓存，避免高频 fork ps)
     try:
-        ps_output = subprocess.check_output(["ps", "-axo", "pid,command"], text=True, stderr=subprocess.DEVNULL)
+        from monitors import get_cached_ps_output
+        ps_output = get_cached_ps_output()
         main_pids = []
         ls_pids = []
         cdp_port = 58321

@@ -255,9 +255,10 @@ def get_codex_status():
     else:
         return status
 
-    # 1. 检查运行进程
+    # 1. 检查运行进程 (复用共享短期缓存)
     try:
-        ps_output = subprocess.check_output(["ps", "-axo", "pid,command"], text=True, stderr=subprocess.DEVNULL)
+        from monitors import get_cached_ps_output
+        ps_output = get_cached_ps_output()
         for line in ps_output.splitlines():
             line_strip = line.strip()
             if "grep" in line_strip:
