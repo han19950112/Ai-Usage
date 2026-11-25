@@ -133,6 +133,25 @@ def _fetch_workbuddy_live_data(config):
     except Exception:
         pass
 
+    # 4. Nearest expiring bonus credits (最近即将到期积分预警)
+    try:
+        r = _req("https://www.workbuddy.cn/billing/meter/get-user-resource-free-packages", "POST", b"{}")
+        accounts = (r.get("data") or {}).get("Accounts") or []
+        expiring = []
+        for acc in accounts:
+            rem = float(acc.get("CycleCapacityRemainPrecise") or 0)
+            end_t = str(acc.get("CycleEndTime") or "").strip()
+            if rem > 0 and end_t:
+                expiring.append((end_t, round(rem, 2)))
+        if expiring:
+            expiring.sort(key=lambda x: x[0])
+            soon_end, soon_rem = expiring[0]
+            result["nearest_expire_time"] = soon_end
+            result["nearest_expire_credits"] = soon_rem
+            result["nearest_expire_human"] = f"{soon_rem} 积分将于 {soon_end[:16]} 到期"
+    except Exception:
+        pass
+
     with _WB_CACHE_LOCK:
         _WB_LIVE_CACHE["key"] = cache_key
         _WB_LIVE_CACHE["ts"] = now_ts
@@ -304,6 +323,8 @@ def get_workbuddy_status(config=None):
         "last_checkin_message": "暂无记录",
         "consecutive_days": 0,
         "total_points": 0,
+        "auth_expired": False,
+        "nearest_expire_human": "",
         "five_hour_usage": {
             "used_requests": 12 if config.get("demo_mode") else 0,
             "limit_requests": 100,
@@ -370,7 +391,10 @@ def get_workbuddy_status(config=None):
     live = _fetch_workbuddy_live_data(config)
     if live:
         if live.get("auth_expired"):
+            status["auth_expired"] = True
             status["last_checkin_message"] = live.get("summary_err", "登录态已失效，请重新更新 Cookie")
+        if live.get("nearest_expire_human"):
+            status["nearest_expire_human"] = live["nearest_expire_human"]
         if "total_points" in live:
             status["total_points"] = live["total_points"]
         if live.get("checkin_streak_days", 0) > 0:

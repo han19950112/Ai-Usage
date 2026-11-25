@@ -14,6 +14,7 @@ import os
 import queue
 import re
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -84,6 +85,18 @@ def _is_valid_hhmm(val):
         return False
     hh, mm = int(m.group(1)), int(m.group(2))
     return 0 <= hh <= 23 and 0 <= mm <= 59
+
+def send_macos_notification(title, message, subtitle="Agent Cockpit"):
+    """Send a non-blocking native macOS notification via osascript (zero external dependencies)."""
+    if sys.platform != "darwin":
+        return
+    try:
+        def _esc(s):
+            return str(s or "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")[:180]
+        script = f'display notification "{_esc(message)}" with title "{_esc(title)}" subtitle "{_esc(subtitle)}"'
+        subprocess.Popen(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
 
 # =========================================================================
 # AG-UI Event Hub & Circuit Breaker Engine
@@ -227,6 +240,7 @@ def background_scheduler():
     last_fast_check = time.time()
     last_heartbeat = time.time()
     last_day_checked = ""
+    last_wb_expired_notified_day = ""
     last_fp = None
 
     while True:
@@ -249,6 +263,10 @@ def background_scheduler():
                     res = run_workbuddy_checkin(wb_cfg, force=False)
                     print(f"[WorkBuddy] 定时签到结果: {res.get('message')}")
                     last_day_checked = today_str
+                    if res.get("success") and not res.get("already_done"):
+                        send_macos_notification("🎁 WorkBuddy 每日签到成功", res.get("message", "已领取每日积分"))
+                    elif not res.get("success"):
+                        send_macos_notification("⚠️ WorkBuddy 定时签到失败", res.get("message", "请检查 Cookie 是否过期"))
                     update_all_status(notify=True)
 
             # 2. 定时状态轮询与 90% 熔断监测 (Fast Poll: 2s)
@@ -257,6 +275,11 @@ def background_scheduler():
                 ag = get_antigravity_status()
                 cdx = get_codex_status()
                 wb = get_workbuddy_status(cfg.get("workbuddy", {}))
+
+                # WorkBuddy Cookie 过期每日首次系统通知提醒
+                if wb.get("auth_expired") and last_wb_expired_notified_day != today_str:
+                    last_wb_expired_notified_day = today_str
+                    send_macos_notification("🔑 WorkBuddy Cookie 已过期", "请重新登录 www.workbuddy.cn 并更新 Cookie 以恢复自动签到")
                 
                 # --- 90% 熔断阈值检测 ---
                 ag_pct = ag.get("quota", {}).get("five_hour_usage", {}).get("percent", 0.0)
@@ -291,6 +314,7 @@ def background_scheduler():
 
                 if trigger_payload:
                     EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", trigger_payload)
+                    send_macos_notification("🚨 90% 额度安全熔断", trigger_payload.get("message", "请尽快处理人机协同审批"))
 
                 if changed:
                     EVENT_HUB.broadcast_event("STATE_DELTA", snapshot)

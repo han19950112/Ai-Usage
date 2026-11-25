@@ -10,10 +10,10 @@
 
 | 监控与自动化目标 | 支持的功能与实现机制 |
 | :--- | :--- |
-| **Google Antigravity** | • **官方权威 CDP 直连**：穿透连接 React Fiber 节点，消除 Token 缓存估算失真，100% 精确对齐官方 QuotaInfo<br>• **双模型池独立监控**：主力套 Gemini 3.8 Flash vs 高阶套 Claude 3.5 Sonnet / Pro 专属配额池<br>• **⏱️ 5小时滑动订阅窗口与精确倒计时**（到期时间戳 + 自然人类读数）<br>• **Prompt Caching 缓存省流倍率**（如 24.4x 命中，超 5000 万 Token 缓存收益）<br>• **优雅离线 Fallback**：即使 IDE 离线，亦能基于本地 Transcript 实时计算真实滑动用量 |
-| **OpenAI Codex** | • 自动检测本地 `~/.codex` 安装环境与客户端版本<br>• **⏱️ 5小时与周额度双窗口监控**：只读分析 SQLite 日志库<br>• **重置次数与释放倒计时**：剩余操作次数（如 2,500 次 / 15,000 次）与周一 UTC 重置时刻 |
-| **WorkBuddy & 自动签到**<br>*(腾讯全场景 Agent · Buddy 加油站)* | • **💰 账户积分余额核心面板**：直观展示总积分流水与累计连续打卡天数<br>• **内置每日定时防断签引擎**：每天 09:00 后台自动静默打卡领积分<br>• 提供 **「🎁 立即打卡」** 手动操作与最近打卡历史流水 |
-| **火山引擎 Plan API**<br>*(方舟 Coding / Agent Plan)* | • **⏱️ 5小时滑动订阅窗口与周额度消耗**，提前预防方舟阶梯限流<br>• 节点连通性与毫秒级 Ping 往返测速 |
+| **Google Antigravity** | • **官方权威 CDP 直连 + 失败退避**：支持穿透 React Fiber 获取官方 QuotaInfo，离线时自动退避避免高频超时<br>• **双模型池独立监控**：自动识别当前活跃模型（如 Gemini 4 Neon / Flash）与高阶 Claude 配额池<br>• **⏱️ 5小时与 7天滑动订阅窗口及精确倒计时**<br>• **Prompt Caching 缓存省流倍率** + 本地 `transcript.jsonl` 增量文件缓存（毫秒级低开销） |
+| **OpenAI Codex** | • 自动检测本地 `~/.codex` 安装环境、订阅类型（如 Plus）与客户端版本<br>• **官方 Session 真实配额**：直读 `~/.codex/sessions/**/*.jsonl` 官方 `rate_limits`（5小时 & 7天真实百分比与重置时间戳）<br>• **本周可用完全重置次数**：自动计算周重置前剩余的完整 5 小时周期数与精准到期节点 |
+| **WorkBuddy & 自动签到**<br>*(腾讯全场景 Agent · Buddy 加油站)* | • **💰 真实账户积分同步**：对接 `www.workbuddy.cn` 桌面端接口，实时同步总剩余积分、累计连签天数与**最近积分到期预警**<br>• **内置每日定时防断签引擎**：每天 09:00 静默调用 `/billing/meter/daily-checkin` 自动打卡领 +100 积分<br>• **macOS 原生通知提醒**：签到成功/失败及 Cookie 过期时自动弹出系统通知 |
+| **火山引擎 Plan API**<br>*(方舟 Agent Plan / Coding Plan)* | • **OpenAPI (AK/SK) 真实配额直连**：内置纯标准库 Signature V4 签名，调用 `GetAgentPlanAFPUsage` 与 `ListSubscribeTrade`，实时同步 **5h / 7天 / 月度 AFP 燃料值**及**实际订阅到期时间**<br>• **推理 API Key (`ark-`) 0-Token 探测**：未填 AK/SK 时亦可自动切换 `/api/coding/v3` 网关进行毫秒级连通测速 |
 | **AG-UI 实时事件流**<br>*(Protocol 1.0)* | • **Server-Sent Events (SSE)** 高频事件广播：`STATE_SNAPSHOT`、`STATE_DELTA`、`AGENT_TICK`<br>• 毫秒级时钟走秒与倒计时同步，无需任何轮询开销 |
 | **💬 智能体流式指令抽屉** | • **快捷键 `⌘K` / `Ctrl+K` 全局一键呼出**（平时完全收起，不遮挡大屏）<br>• **原生打字机流式输出**：`RUN_STARTED` $\to$ `TOOL_CALL` $\to$ `CHUNK` $\to$ `RUN_FINISHED`<br>• **结构化工具卡片**：展开查看参数与执行结果<br>• **综合体检日报**：一键生成四大智能体全景用量分析 Markdown 简报<br>• **LocalStorage 持久化**：聊天记录自动跨刷新保留 |
 | **🚨 90% 额度安全熔断**<br>*(Human-in-the-Loop)* | • **90.0% 严格安全警戒线**：超额自动阻断自动化调度<br>• **人机协同审批卡片**：触发红光呼吸警示与 Web Audio 合成科技提示音<br>• **三大授权处置方案**：自动无感切换至备用高阶模型池 / 挂起后台任务等待重置 / 风险放行<br>• 提供 **「🧪 演练90%熔断」** 快速验证测试 |
@@ -104,15 +104,14 @@ cd agent-cockpit
 }
 ```
 
-### 1. 火山引擎 Plan API 获取方式
-1. 登录 [火山方舟大模型控制台](https://console.volcengine.com/ark/)。
-2. 在右上角或 API Key 管理页面生成专属的 **Ark API Key**。
-3. 填入网页设置中的 API Key 即可（若暂时没有，勾选“启用演示模式”可查看完整进度条模拟效果）。
+### 1. 火山引擎 Agent Plan / Coding Plan 配置方式
+1. **查看真实 5h / 7天 / 月度 AFP 燃料值与订阅到期日（推荐）**：登录 [火山引擎 IAM 密钥管理](https://console.volcengine.com/iam/keymanage/) 获取具备 `ArkReadOnlyAccess` 权限的 **AccessKey ID (AK)** 和 **SecretAccessKey (SK)**，填入网页设置弹窗保存即可自动拉取真实配额与订阅到期日。
+2. **仅测试推理连通性**：在 [火山方舟控制台](https://console.volcengine.com/ark/) 生成 `ark-` 推理 API Key 填入即可（若暂时没有，勾选“启用演示模式”可预览完整效果）。
 
-### 2. WorkBuddy 签到凭据获取方式
-1. 打开浏览器登录 WorkBuddy 网页版或在桌面客户端抓取一次请求。
-2. 复制 Request Headers 里的 `Authorization: Bearer <token>` 或 `Cookie`。
-3. 填入设置面板中，点击保存后即可点击 **「🎁 立即打卡」** 测试签到。
+### 2. WorkBuddy 真实积分与每日自动签到配置方式
+1. 在浏览器登录 [WorkBuddy 网页版](https://www.workbuddy.cn/app)，按 `⌘+Option+I` 打开 DevTools → **Network**，点击任意一条 `www.workbuddy.cn` 的 `200` 请求。
+2. 复制 Request Headers 里的 **`Cookie`**，以及该浏览器的 **`User-Agent`**（WorkBuddy 网关会校验 Session 与 UA 一致性）。
+3. 填入设置面板的 **WorkBuddy Cookie** 与 **WorkBuddy User-Agent**（若在同一浏览器保存可留空 UA 自动沿用），点击保存即可同步真实积分并在每天 09:00 自动打卡领 +100 积分。
 
 ---
 

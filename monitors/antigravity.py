@@ -26,6 +26,9 @@ import urllib.request
 # Per-file transcript cache: {fpath: (mtime, size, steps_list, total_inp, total_out, total_cache, latest_ts, latest_step)}
 _TRANSCRIPT_CACHE = {}
 _CACHE_LOCK = threading.Lock()
+# CDP failure backoff to avoid 1s timeout every 2s when IDE has no --remote-debugging-port
+_CDP_BACKOFF = {"last_fail_ts": 0.0, "port": None}
+_CDP_BACKOFF_SECONDS = 30.0
 
 def parse_iso_ts(iso_str):
     if not iso_str:
@@ -135,11 +138,16 @@ def _parse_transcript_file(fpath, mtime, size):
     return (mtime, size, steps, t_inp, t_out, t_cache, latest_ts, latest_step)
 
 def fetch_official_antigravity_quota(port=58321):
-    """Query Antigravity's internal React Fiber store via local CDP port."""
+    """Query Antigravity's internal React Fiber store via local CDP port (with 30s failure backoff)."""
+    now = time.time()
+    if _CDP_BACKOFF["port"] == port and (now - _CDP_BACKOFF["last_fail_ts"]) < _CDP_BACKOFF_SECONDS:
+        return None
     try:
-        req = urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=1.0)
+        req = urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=0.6)
         targets = json.loads(req.read().decode())
     except Exception:
+        _CDP_BACKOFF["port"] = port
+        _CDP_BACKOFF["last_fail_ts"] = now
         return None
 
     target_page = None

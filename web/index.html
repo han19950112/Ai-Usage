@@ -449,6 +449,7 @@
             <div class="stat-row"><span>今日签到状态</span><span class="val" id="wbTodayStatus" style="color:var(--yellow); font-weight:600;">⏳ 今日尚未打卡</span></div>
             <div class="stat-row"><span>每日定时自动签到</span><span class="val" id="wbAutoTime" style="color:var(--accent);">每天 09:00 (自动防断签)</span></div>
             <div class="stat-row"><span>最近打卡时间</span><span class="val" id="wbLastTime">-</span></div>
+            <div class="stat-row" id="wbExpireRow" style="display:none;"><span>⏳ 最近积分到期</span><span class="val" id="wbExpireText" style="color:var(--yellow); font-size:12px;">-</span></div>
           </div>
 
           <!-- 5h WorkBuddy Window -->
@@ -905,6 +906,13 @@
       document.getElementById('wbPointsSub').innerText = `已连续打卡 ${days} 天 · 每日签到奖励 +100 积分`;
       document.getElementById('wbAutoTime').innerText = `每天 ${wb.checkin_time || '09:00'} (自动防断签)`;
       document.getElementById('wbLastTime').innerText = wb.last_checkin_time || '暂无打卡记录';
+      const wbExpireRow = document.getElementById('wbExpireRow');
+      if (wb.nearest_expire_human) {
+        wbExpireRow.style.display = 'flex';
+        document.getElementById('wbExpireText').innerText = wb.nearest_expire_human;
+      } else {
+        wbExpireRow.style.display = 'none';
+      }
 
       // 3.2 签到状态切换
       if (wb.today_checked_in) {
