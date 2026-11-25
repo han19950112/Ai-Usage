@@ -30,6 +30,8 @@ cat > "$TARGET_PLIST" <<EOF
     <string>$DIR</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>HOME</key>
+        <string>$HOME</string>
         <key>PATH</key>
         <string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>http_proxy</key>

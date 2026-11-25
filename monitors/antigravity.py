@@ -30,8 +30,8 @@ _CACHE_LOCK = threading.Lock()
 # CDP failure backoff to avoid 1s timeout every 2s when IDE has no --remote-debugging-port
 _CDP_BACKOFF = {"last_fail_ts": 0.0, "port": None}
 _CDP_BACKOFF_SECONDS = 30.0
-# agy CLI /usage cache (60s TTL, zero-cost official dual-window quota)
-_AGY_CLI_CACHE = {"ts": 0.0, "data": None, "bin_checked": False, "bin_path": None}
+# agy CLI /usage async cache (60s TTL, zero-cost official dual-window quota)
+_AGY_CLI_CACHE = {"ts": 0.0, "data": None, "bin_checked": False, "bin_path": None, "in_flight": False}
 _AGY_CLI_LOCK = threading.Lock()
 
 def parse_iso_ts(iso_str):
@@ -172,30 +172,14 @@ def _format_reset_countdown(reset_ts, now_ts):
     exp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(reset_ts))
     return cd, exp
 
-def fetch_agy_cli_usage():
-    """
-    Query official Antigravity dual-window (5h + weekly) quota via `agy -p /usage --output-format json`.
-    Inspired by stablyai/orca: zero quota/tokens spent, works even when IDE is closed.
-    Cached for 60s so 2s polling remains ultra-fast.
-    """
-    now = time.time()
-    with _AGY_CLI_LOCK:
-        if (now - _AGY_CLI_CACHE["ts"]) < 60.0 and _AGY_CLI_CACHE["bin_checked"]:
-            return _AGY_CLI_CACHE["data"]
-        bin_path = _find_agy_binary()
-        _AGY_CLI_CACHE["bin_checked"] = True
-        _AGY_CLI_CACHE["bin_path"] = bin_path
-        if not bin_path:
-            _AGY_CLI_CACHE["ts"] = now
-            _AGY_CLI_CACHE["data"] = None
-            return None
-
+def _run_agy_cli_probe(bin_path):
     env = dict(os.environ)
     env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true"
     parsed_result = None
     try:
         proc = subprocess.run(
             [bin_path, "-p", "/usage", "--output-format", "json", "--print-timeout", "20s"],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=25,
@@ -203,7 +187,6 @@ def fetch_agy_cli_usage():
         )
         raw_out = (proc.stdout or "").strip()
         if proc.returncode == 0 and raw_out:
-            # Find JSON line in output
             env_obj = None
             for line in reversed(raw_out.splitlines()):
                 line = line.strip()
@@ -242,8 +225,30 @@ def fetch_agy_cli_usage():
 
     with _AGY_CLI_LOCK:
         _AGY_CLI_CACHE["ts"] = time.time()
-        _AGY_CLI_CACHE["data"] = parsed_result
-    return parsed_result
+        if parsed_result is not None:
+            _AGY_CLI_CACHE["data"] = parsed_result
+        _AGY_CLI_CACHE["in_flight"] = False
+
+def fetch_agy_cli_usage():
+    """
+    Non-blocking official Antigravity dual-window (5h + weekly) quota via `agy -p /usage --output-format json`.
+    Refreshes asynchronously in a background thread every 60s so 2s polling never stalls.
+    """
+    now = time.time()
+    trigger_path = None
+    with _AGY_CLI_LOCK:
+        if not _AGY_CLI_CACHE["bin_checked"]:
+            _AGY_CLI_CACHE["bin_path"] = _find_agy_binary()
+            _AGY_CLI_CACHE["bin_checked"] = True
+        bin_path = _AGY_CLI_CACHE["bin_path"]
+        cached = _AGY_CLI_CACHE["data"]
+        if bin_path and not _AGY_CLI_CACHE["in_flight"] and (now - _AGY_CLI_CACHE["ts"]) >= 60.0:
+            _AGY_CLI_CACHE["in_flight"] = True
+            trigger_path = bin_path
+
+    if trigger_path:
+        threading.Thread(target=_run_agy_cli_probe, args=(trigger_path,), daemon=True).start()
+    return cached
 
 def fetch_official_antigravity_quota(port=58321):
     """Query Antigravity's internal React Fiber store via local CDP port (with 30s failure backoff)."""
