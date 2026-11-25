@@ -700,6 +700,10 @@
         <input type="password" id="cfgWbCookie" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" placeholder="填入浏览器请求头中的 Cookie">
       </div>
       <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">WorkBuddy User-Agent (可选，APISIX 校验需与复制 Cookie 的浏览器一致)</label>
+        <input type="text" id="cfgWbUa" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:12px;" placeholder="留空自动沿用当前浏览器 UA">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
         <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">每日定时签到时间 (24小时制，例如 09:00)</label>
         <input type="text" id="cfgWbTime" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" value="09:00">
       </div>
@@ -1328,6 +1332,7 @@
           wbCookieEl.placeholder = wb.cookie_configured
             ? `已配置 (${wb.cookie_masked})，留空保持不变`
             : '填入浏览器请求头中的 Cookie';
+          document.getElementById('cfgWbUa').value = wb.user_agent || '';
 
           document.getElementById('cfgWbTime').value = wb.checkin_time || '09:00';
           document.getElementById('cfgDemo').checked = !!(volc.demo_mode || wb.demo_mode);
@@ -1348,6 +1353,7 @@
       const ve = document.getElementById('cfgVolcExpire').value.trim();
       const wt = document.getElementById('cfgWbToken').value.trim();
       const wc = document.getElementById('cfgWbCookie').value.trim();
+      const wua = document.getElementById('cfgWbUa').value.trim();
       const wtm = document.getElementById('cfgWbTime').value.trim();
       const dm = document.getElementById('cfgDemo').checked;
 
@@ -1364,7 +1370,11 @@
       if (vak) payload.volcengine.ak = vak;
       if (vsk) payload.volcengine.sk = vsk;
       if (wt) payload.workbuddy.token = wt;
-      if (wc) payload.workbuddy.cookie = wc;
+      if (wc) {
+        payload.workbuddy.cookie = wc;
+        if (!wua) payload.workbuddy.user_agent = navigator.userAgent;
+      }
+      if (wua) payload.workbuddy.user_agent = wua;
 
       try {
         const resp = await fetch('/api/config/update', {

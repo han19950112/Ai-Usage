@@ -41,11 +41,15 @@ def _detect_local_workbuddy_uid():
         pass
     return ""
 
+DEFAULT_WB_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.167 Safari/537.36 Antigravity/2.35.1"
+
 def _wb_headers(config):
+    ua = str(config.get("user_agent", "") or "").strip() or DEFAULT_WB_USER_AGENT
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "User-Agent": ua,
         "Content-Type": "application/json",
         "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN",
         "Origin": "https://www.workbuddy.cn",
         "Referer": "https://www.workbuddy.cn/app",
         "x-request-id": str(uuid.uuid4()),
@@ -216,14 +220,7 @@ def run_workbuddy_checkin(config=None, force=False):
         save_history(history)
         return {"success": True, "message": record["message"], "record": record}
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) WorkBuddy/1.0.0",
-        "Content-Type": "application/json"
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    if cookie:
-        headers["Cookie"] = cookie
+    headers = _wb_headers(config)
 
     ssl_ctx = _get_ssl_context(config)
     try:
