@@ -110,14 +110,15 @@ def _fetch_workbuddy_live_data(config):
     except Exception as e:
         result["summary_err"] = str(e)
 
-    # 2. Checkin status (Buddy 加油站)
+    # 2. Checkin status (桌面端 Buddy 加油站真实接口: checkin-activity-status)
     try:
-        r = _req("https://www.workbuddy.cn/billing/meter/checkin-status", "POST", b"{}")
+        r = _req("https://www.workbuddy.cn/billing/meter/checkin-activity-status", "POST", b"{}")
         d = r.get("data") or {}
         if isinstance(d, dict):
             result["checkin_active"] = bool(d.get("active", False))
             result["today_checked_in"] = bool(d.get("today_checked_in", False))
             result["checkin_streak_days"] = int(d.get("streak_days") or 0)
+            result["daily_credit"] = int(d.get("daily_credit") or 100)
     except Exception:
         pass
 
@@ -185,9 +186,9 @@ def run_workbuddy_checkin(config=None, force=False):
 
     token = config.get("token", "").strip()
     cookie = config.get("cookie", "").strip()
-    api_url = config.get("checkin_url", "https://www.workbuddy.cn/billing/meter/checkin").strip()
-    if "workbuddy.qq.com" in api_url:
-        api_url = "https://www.workbuddy.cn/billing/meter/checkin"
+    api_url = config.get("checkin_url", "https://www.workbuddy.cn/billing/meter/daily-checkin").strip()
+    if "workbuddy.qq.com" in api_url or api_url.rstrip("/").endswith("/billing/meter/checkin"):
+        api_url = "https://www.workbuddy.cn/billing/meter/daily-checkin"
     demo_mode = config.get("demo_mode", False)
 
     if not token and not cookie and not demo_mode:
@@ -224,13 +225,13 @@ def run_workbuddy_checkin(config=None, force=False):
 
     ssl_ctx = _get_ssl_context(config)
     try:
-        payload = json.dumps({"source": "desktop_client", "action": "daily_checkin"}).encode("utf-8")
+        payload = b"{}"
         req = urllib.request.Request(api_url, data=payload, headers=headers, method="POST")
         with urllib.request.urlopen(req, context=ssl_ctx, timeout=12) as resp:
             body = resp.read().decode("utf-8", errors="replace")
             res_data = json.loads(body)
             
-            # Parse typical return format
+            # Parse WorkBuddy daily-checkin return format
             code = res_data.get("code", res_data.get("status", 0))
             is_ok = code in (0, 200, "0", "200", "SUCCESS")
             msg = res_data.get("msg", res_data.get("message", "签到请求已处理"))
@@ -238,9 +239,15 @@ def run_workbuddy_checkin(config=None, force=False):
             if not isinstance(data_field, dict):
                 data_field = {}
             
-            reward = data_field.get("points", data_field.get("bonus", data_field.get("reward", 100)))
-            total = data_field.get("total_points", data_field.get("current_points", 0))
-            consec = data_field.get("consecutive_days", 1)
+            reward = data_field.get("credit", data_field.get("points", data_field.get("bonus", data_field.get("reward", 100))))
+            total = data_field.get("total_credits", data_field.get("total_points", data_field.get("current_points", 0)))
+            consec = data_field.get("streak_days", data_field.get("consecutive_days", 1))
+            if is_ok and msg in ("OK", "ok", ""):
+                msg = f"签到成功！获得 +{reward} 积分"
+
+            # 清空实时缓存，使最新积分与签到状态立刻生效
+            with _WB_CACHE_LOCK:
+                _WB_LIVE_CACHE["ts"] = 0.0
 
             record = {
                 "date": today_str,
