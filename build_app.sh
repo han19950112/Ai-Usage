@@ -67,11 +67,11 @@ cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>2.0.0</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>2.0.0</string>
     <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
+    <string>12.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSAppTransportSecurity</key>
@@ -86,10 +86,23 @@ EOF
 # 写入 PkgInfo
 echo -n "APPL????" > "$APP_DIR/Contents/PkgInfo"
 
-# 6. 复制到 /Applications
+# 清除隔离属性并进行本地 Ad-hoc 签名（保障 Apple Silicon / Gatekeeper 正常秒开与通知权限）
+xattr -cr "$APP_DIR" 2>/dev/null || true
+codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+
+# 6. 同步已有本地凭据至 ~/.agent-cockpit（确保独立打开 .app 时同样保留完整配置）
+if [ -f "$DIR/config.json" ]; then
+    mkdir -p "$HOME/.agent-cockpit"
+    cp "$DIR/config.json" "$HOME/.agent-cockpit/config.json"
+    chmod 600 "$HOME/.agent-cockpit/config.json" 2>/dev/null || true
+fi
+
+# 7. 复制到 /Applications
 echo "📦 正在部署至 /Applications/$APP_NAME.app ..."
 rm -rf "$SYS_APP_DIR"
 cp -R "$APP_DIR" "$SYS_APP_DIR"
+xattr -cr "$SYS_APP_DIR" 2>/dev/null || true
+codesign --force --deep --sign - "$SYS_APP_DIR" >/dev/null 2>&1 || true
 
 echo "✅ 构建并部署成功！"
 echo "  - 项目内应用位置: $APP_DIR"

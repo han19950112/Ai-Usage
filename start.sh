@@ -3,8 +3,17 @@
 set -e
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PID_FILE="$DIR/server.pid"
-LOG_FILE="$DIR/server.log"
+if [[ "$DIR" == *".app/Contents/Resources"* ]]; then
+    DATA_DIR="$HOME/.agent-cockpit"
+    mkdir -p "$DATA_DIR"
+    PID_FILE="$DATA_DIR/server.pid"
+    LOG_FILE="$DATA_DIR/server.log"
+    CFG_TARGET="$DATA_DIR/config.json"
+else
+    PID_FILE="$DIR/server.pid"
+    LOG_FILE="$DIR/server.log"
+    CFG_TARGET="$DIR/config.json"
+fi
 
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
@@ -24,9 +33,10 @@ if ! command -v python3 > /dev/null 2>&1; then
 fi
 
 # 初始化 config.json (若不存在)
-if [ ! -f "$DIR/config.json" ]; then
-    cp "$DIR/config.example.json" "$DIR/config.json"
-    echo "ℹ️  已根据模板自动生成 config.json"
+if [ ! -f "$CFG_TARGET" ]; then
+    cp "$DIR/config.example.json" "$CFG_TARGET"
+    chmod 600 "$CFG_TARGET" 2>/dev/null || true
+    echo "ℹ️  已根据模板自动生成 $CFG_TARGET"
 fi
 
 if [ "$1" == "--daemon" ] || [ "$1" == "-d" ]; then
