@@ -28,6 +28,15 @@ cat > "$TARGET_PLIST" <<EOF
     </array>
     <key>WorkingDirectory</key>
     <string>$DIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>http_proxy</key>
+        <string>${http_proxy:-}</string>
+        <key>https_proxy</key>
+        <string>${https_proxy:-}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
