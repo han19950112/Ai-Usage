@@ -8,12 +8,14 @@ Handles WorkBuddy status detection, automated daily check-in (Buddy 加油站), 
 import hashlib
 import json
 import os
+import re
 import subprocess
 import threading
 import time
 import ssl
 import urllib.request
 import urllib.error
+import uuid
 
 # Live API cache (60s TTL) to avoid hammering www.workbuddy.cn every 2s
 _WB_LIVE_CACHE = {"key": None, "ts": 0.0, "data": None}
@@ -26,6 +28,19 @@ def _get_ssl_context(config):
         ctx.verify_mode = ssl.CERT_NONE
     return ctx
 
+def _detect_local_workbuddy_uid():
+    """Auto-detect local WorkBuddy UUID from ~/.workbuddy/<uuid> directory."""
+    wb_dir = os.path.expanduser("~/.workbuddy")
+    if not os.path.isdir(wb_dir):
+        return ""
+    try:
+        for name in os.listdir(wb_dir):
+            if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", name.lower()):
+                return name
+    except Exception:
+        pass
+    return ""
+
 def _wb_headers(config):
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -33,11 +48,15 @@ def _wb_headers(config):
         "Accept": "application/json, text/plain, */*",
         "Origin": "https://www.workbuddy.cn",
         "Referer": "https://www.workbuddy.cn/app",
+        "x-request-id": str(uuid.uuid4()),
     }
+    uid = str(config.get("user_id", "") or "").strip() or _detect_local_workbuddy_uid()
+    if uid:
+        headers["x-user-id"] = uid
     token = str(config.get("token", "") or "").strip()
     cookie = str(config.get("cookie", "") or "").strip()
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        headers["Authorization"] = f"Bearer {token}" if not token.lower().startswith("bearer ") else token
     if cookie:
         headers["Cookie"] = cookie
     return headers
