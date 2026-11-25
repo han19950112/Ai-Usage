@@ -767,6 +767,14 @@
               <button class="btn btn-primary" onclick="dispatchRealAgentTask()">🚀 立即派发执行</button>
               <button class="btn" onclick="createMcTask()">📝 仅记录卡片</button>
             </div>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; padding:8px 10px; background:rgba(13,17,23,0.55); border:1px solid var(--card-border); border-radius:8px; font-size:12px;">
+              <span style="color:var(--text-muted); font-weight:500;">🔀 多 Agent 并行对比：</span>
+              <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><input type="checkbox" class="fanout-cb" value="antigravity" checked> ⚡ Antigravity</label>
+              <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><input type="checkbox" class="fanout-cb" value="workbuddy" checked> 🤖 WorkBuddy</label>
+              <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><input type="checkbox" class="fanout-cb" value="volcengine"> 🌋 火山引擎</label>
+              <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><input type="checkbox" class="fanout-cb" value="codex"> 🧠 Codex</label>
+              <button class="btn btn-chat" style="padding:4px 10px; font-size:11.5px; margin-left:auto;" onclick="fanoutRealAgentTask()">🔀 一键并行广播</button>
+            </div>
 
             <!-- Live Dispatched Runs (Real-time Output & Cancel) -->
             <div id="mcLiveRunsBox" style="margin-bottom:14px;"></div>
@@ -1052,6 +1060,17 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       <div class="form-group" style="margin-bottom:14px;">
         <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">WorkBuddy User-Agent (可选，APISIX 校验需与复制 Cookie 的浏览器一致)</label>
         <input type="text" id="cfgWbUa" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:12px;" placeholder="留空自动沿用当前浏览器 UA">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">WorkBuddy 免过期授权（推荐，支持 Refresh Token 自动续期）</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button type="button" class="btn btn-chat" id="btnWbOAuth" style="padding:6px 12px; font-size:12px;" onclick="startWorkbuddyWebLogin()">🔗 官方扫码登录 (自动续期)</button>
+          <span id="wbOAuthHint" style="font-size:11.5px; color:var(--text-muted);">未开启自动续期</span>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">全局额度熔断告警阈值 (%，覆盖 Antigravity / Codex / 火山引擎)</label>
+        <input type="number" id="cfgCbThreshold" min="50" max="99" step="1" class="form-control" style="width:100%; background:#0d1117; border:1px solid #30363d; color:var(--text); padding:8px 12px; border-radius:6px; font-size:13px;" value="90">
       </div>
       <div class="form-group" style="margin-bottom:14px;">
         <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">每日定时签到时间 (24小时制，例如 09:00)</label>
@@ -1546,6 +1565,29 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
         fetchMissionControl();
       } else {
         showToast(res.message || '派发失败', '⚠️');
+      }
+    }
+
+    async function fanoutRealAgentTask() {
+      const titleEl = document.getElementById('mcNewTitle');
+      const prompt = titleEl.value.trim();
+      if (!prompt) { showToast('请先输入要并行广播的任务指令', '⚠️'); return; }
+      const agents = Array.from(document.querySelectorAll('.fanout-cb:checked')).map(el => el.value);
+      if (agents.length === 0) { showToast('请至少勾选一个 Agent', '⚠️'); return; }
+      const priority = document.getElementById('mcNewPriority').value;
+      const cwd = (document.getElementById('mcNewCwd')?.value || '').trim();
+      const resp = await fetch('/api/agents/fanout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agents, prompt, priority, cwd })
+      });
+      const res = await resp.json();
+      if (res.success) {
+        titleEl.value = '';
+        showToast(`已同时广播给 ${res.count} 个 Agent 并行执行！`, '🔀');
+        fetchMissionControl();
+      } else {
+        showToast(res.message || '广播失败', '⚠️');
       }
     }
 
@@ -2268,12 +2310,64 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
             ? `已配置 (${wb.cookie_masked})，留空保持不变`
             : '填入浏览器请求头中的 Cookie';
           document.getElementById('cfgWbUa').value = wb.user_agent || '';
+          const oauthHintEl = document.getElementById('wbOAuthHint');
+          if (oauthHintEl) {
+            oauthHintEl.innerText = wb.refresh_token_configured
+              ? '✅ 已开启 Refresh Token 自动续期'
+              : '未开启（可点左侧按钮扫码授权）';
+            oauthHintEl.style.color = wb.refresh_token_configured ? 'var(--green)' : 'var(--text-muted)';
+          }
+          const cbEl = document.getElementById('cfgCbThreshold');
+          if (cbEl) {
+            cbEl.value = (cfg.circuit_breaker && cfg.circuit_breaker.threshold) || 90;
+          }
 
           document.getElementById('cfgWbTime').value = wb.checkin_time || '09:00';
           document.getElementById('cfgDemo').checked = !!(volc.demo_mode || wb.demo_mode);
           document.getElementById('configModal').style.display = 'flex';
         })
         .catch(err => showToast('加载配置失败: ' + err.message, '⚠️'));
+    }
+
+    let wbOAuthPollTimer = null;
+    async function startWorkbuddyWebLogin() {
+      const hint = document.getElementById('wbOAuthHint');
+      if (hint) { hint.innerText = '⏳ 正在获取官方授权链接...'; hint.style.color = 'var(--accent)'; }
+      try {
+        const resp = await fetch('/api/workbuddy/auth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const res = await resp.json();
+        if (!res.success || !res.auth_url) {
+          if (hint) { hint.innerText = '❌ ' + (res.message || '发起失败'); hint.style.color = 'var(--red)'; }
+          return;
+        }
+        window.open(res.auth_url, '_blank');
+        if (hint) hint.innerText = '📱 已打开登录页，请扫码确认...';
+        if (wbOAuthPollTimer) clearInterval(wbOAuthPollTimer);
+        let tries = 0;
+        wbOAuthPollTimer = setInterval(async () => {
+          tries++;
+          if (tries > 60) {
+            clearInterval(wbOAuthPollTimer);
+            if (hint) { hint.innerText = '⏳ 授权超时，请重试'; hint.style.color = 'var(--yellow)'; }
+            return;
+          }
+          try {
+            const pr = await fetch('/api/workbuddy/auth/poll');
+            const pdata = await pr.json();
+            if (pdata.status === 'success') {
+              clearInterval(wbOAuthPollTimer);
+              if (hint) { hint.innerText = '✅ 授权成功并开启自动续期！'; hint.style.color = 'var(--green)'; }
+              showToast(pdata.message || 'WorkBuddy 官方扫码登录成功', '🎉');
+              fetchStatus();
+            } else if (pdata.status === 'failed') {
+              clearInterval(wbOAuthPollTimer);
+              if (hint) { hint.innerText = '❌ ' + (pdata.message || '授权失败'); hint.style.color = 'var(--red)'; }
+            }
+          } catch (e) {}
+        }, 2000);
+      } catch (e) {
+        if (hint) { hint.innerText = '❌ 网络错误'; hint.style.color = 'var(--red)'; }
+      }
     }
 
     function closeConfigModal() {
@@ -2289,6 +2383,7 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       const wt = document.getElementById('cfgWbToken').value.trim();
       const wc = document.getElementById('cfgWbCookie').value.trim();
       const wua = document.getElementById('cfgWbUa').value.trim();
+      const cbTh = Number(document.getElementById('cfgCbThreshold')?.value || 90);
       const wtm = document.getElementById('cfgWbTime').value.trim();
       const dm = document.getElementById('cfgDemo').checked;
 
@@ -2299,7 +2394,8 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
 
       const payload = {
         volcengine: { model: vm || 'doubao-seed-evolving', plan_expire_date: ve, demo_mode: dm },
-        workbuddy: { checkin_time: wtm, demo_mode: dm }
+        workbuddy: { checkin_time: wtm, demo_mode: dm },
+        circuit_breaker: { threshold: Number.isFinite(cbTh) ? Math.min(99, Math.max(50, cbTh)) : 90 }
       };
       if (vk) payload.volcengine.api_key = vk;
       if (vak) payload.volcengine.ak = vak;

@@ -20,6 +20,106 @@ import uuid
 # Live API cache (60s TTL) to avoid hammering www.workbuddy.cn every 2s
 _WB_LIVE_CACHE = {"key": None, "ts": 0.0, "data": None}
 _WB_CACHE_LOCK = threading.Lock()
+_WB_AUTH_FLOW = {"state": None, "auth_url": None, "status": "idle", "message": "", "started_ts": 0.0}
+_WB_AUTH_LOCK = threading.Lock()
+_WB_CN_AUTH_ORIGIN = "https://www.codebuddy.cn"
+
+def start_workbuddy_web_login():
+    """Initiate WorkBuddy official plugin auth/state login (returns auth_url for user browser)."""
+    ctx = ssl.create_default_context()
+    url = f"{_WB_CN_AUTH_ORIGIN}/v2/plugin/auth/state?platform=workbuddy"
+    req = urllib.request.Request(
+        url,
+        data=b"{}",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        data = payload.get("data") or {}
+        state = str(data.get("state") or "").strip()
+        auth_url = str(data.get("authUrl") or "").strip()
+        if not state or not auth_url:
+            return {"success": False, "message": f"获取授权链接失败: {payload.get('msg') or payload}"}
+        with _WB_AUTH_LOCK:
+            _WB_AUTH_FLOW.update({
+                "state": state,
+                "auth_url": auth_url,
+                "status": "pending",
+                "message": "请在打开的网页中扫码/确认登录",
+                "started_ts": time.time(),
+            })
+        return {"success": True, "state": state, "auth_url": auth_url}
+    except Exception as e:
+        return {"success": False, "message": f"发起登录失败: {e}"}
+
+def poll_workbuddy_web_login(save_callback=None):
+    """Poll WorkBuddy auth/token once; if authorized, save access_token + refresh_token."""
+    with _WB_AUTH_LOCK:
+        state = _WB_AUTH_FLOW.get("state")
+        status = _WB_AUTH_FLOW.get("status")
+        if not state or status != "pending":
+            return {"status": status, "message": _WB_AUTH_FLOW.get("message", "")}
+
+    ctx = ssl.create_default_context()
+    from urllib.parse import quote
+    url = f"{_WB_CN_AUTH_ORIGIN}/v2/plugin/auth/token?state={quote(state, safe='')}"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        code = payload.get("code")
+        if code == 11217:
+            return {"status": "pending", "message": "等待扫码确认中..."}
+        data = payload.get("data") or {}
+        access_token = str(data.get("accessToken") or data.get("access_token") or "").strip()
+        refresh_token = str(data.get("refreshToken") or data.get("refresh_token") or "").strip()
+        if code in (0, 200, "0", "200") and access_token:
+            if save_callback:
+                save_callback({"token": access_token, "refresh_token": refresh_token})
+            with _WB_CACHE_LOCK:
+                _WB_LIVE_CACHE["ts"] = 0.0
+            with _WB_AUTH_LOCK:
+                _WB_AUTH_FLOW.update({"status": "success", "message": "官方扫码登录成功！已启用 Refresh Token 自动续期"})
+            return {"status": "success", "message": "官方扫码登录成功！已自动保存凭据并开启自动续期"}
+        with _WB_AUTH_LOCK:
+            _WB_AUTH_FLOW.update({"status": "failed", "message": f"授权返回异常 (code={code})"})
+        return {"status": "failed", "message": f"授权失败: {payload.get('msg') or code}"}
+    except Exception as e:
+        return {"status": "pending", "message": f"轮询重试中: {e}"}
+
+def refresh_workbuddy_token(config, save_callback=None):
+    """Attempt automatic WorkBuddy token renewal using saved refresh_token."""
+    rt = str((config or {}).get("refresh_token") or "").strip()
+    if not rt:
+        return None
+    ctx = ssl.create_default_context()
+    url = f"{_WB_CN_AUTH_ORIGIN}/v2/plugin/auth/token/refresh"
+    req = urllib.request.Request(
+        url,
+        data=b"{}",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Refresh-Token": rt,
+            "X-Auth-Refresh-Source": "plugin",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        data = payload.get("data") or {}
+        new_at = str(data.get("accessToken") or data.get("access_token") or "").strip()
+        new_rt = str(data.get("refreshToken") or data.get("refresh_token") or rt).strip()
+        if new_at:
+            if save_callback:
+                save_callback({"token": new_at, "refresh_token": new_rt})
+            return new_at
+    except Exception:
+        pass
+    return None
 
 def _get_ssl_context(config):
     ctx = ssl.create_default_context()

@@ -29,7 +29,13 @@ sys.path.insert(0, BASE_DIR)
 from monitors.antigravity import get_antigravity_status
 from monitors.codex import get_codex_status, consume_codex_reset_credit
 from monitors.volcengine import get_volcengine_plan_status
-from monitors.workbuddy import get_workbuddy_status, run_workbuddy_checkin
+from monitors.workbuddy import (
+    get_workbuddy_status,
+    run_workbuddy_checkin,
+    start_workbuddy_web_login,
+    poll_workbuddy_web_login,
+    refresh_workbuddy_token,
+)
 import mission_control as mc
 import agent_runner as runner
 
@@ -285,31 +291,55 @@ def background_scheduler():
                 cdx = get_codex_status()
                 wb = get_workbuddy_status(cfg.get("workbuddy", {}))
 
-                # WorkBuddy Cookie 过期每日首次系统通知提醒
-                if wb.get("auth_expired") and last_wb_expired_notified_day != today_str:
-                    last_wb_expired_notified_day = today_str
-                    send_macos_notification("🔑 WorkBuddy Cookie 已过期", "请重新登录 www.workbuddy.cn 并更新 Cookie 以恢复自动签到")
+                # WorkBuddy Cookie/Token 过期处理：先尝试用 refresh_token 自动续期，失败再通知
+                if wb.get("auth_expired"):
+                    wb_cfg_now = cfg.get("workbuddy", {})
+                    if wb_cfg_now.get("refresh_token"):
+                        def _save_wb_rotated(upd):
+                            c = load_config()
+                            c.setdefault("workbuddy", {}).update(upd)
+                            save_config(c)
+                        new_tok = refresh_workbuddy_token(wb_cfg_now, save_callback=_save_wb_rotated)
+                        if new_tok:
+                            print("[WorkBuddy] Refresh Token 自动续期成功！")
+                            wb = get_workbuddy_status(load_config().get("workbuddy", {}))
+                    if wb.get("auth_expired") and last_wb_expired_notified_day != today_str:
+                        last_wb_expired_notified_day = today_str
+                        send_macos_notification("🔑 WorkBuddy 登录态已过期", "请点击设置中的「官方扫码登录」或更新 Cookie")
                 
-                # --- 90% 熔断阈值检测 ---
-                ag_pct = ag.get("quota", {}).get("five_hour_usage", {}).get("percent", 0.0)
+                # --- 全智能体可配置熔断阈值检测 (Antigravity + Codex + 火山引擎) ---
+                cfg_threshold = float(cfg.get("circuit_breaker", {}).get("threshold", 90.0) or 90.0)
+                cfg_threshold = max(50.0, min(99.5, cfg_threshold))
+                with STATUS_LOCK:
+                    volc_curr = LATEST_STATUS.get("volcengine", {})
+                quota_checks = [
+                    ("Google Antigravity (5小时)", float(ag.get("quota", {}).get("five_hour_usage", {}).get("percent") or 0.0)),
+                    ("Google Antigravity (7天周)", float(ag.get("quota", {}).get("weekly_usage", {}).get("percent") or 0.0)),
+                    ("OpenAI Codex (5小时)", float(cdx.get("five_hour_usage", {}).get("percent") or 0.0)),
+                    ("OpenAI Codex (7天周)", float(cdx.get("weekly_usage", {}).get("percent") or 0.0)),
+                    ("火山引擎 Agent Plan (5小时)", float(volc_curr.get("five_hour_quota", {}).get("percent") or 0.0)),
+                    ("火山引擎 Agent Plan (7天周)", float(volc_curr.get("weekly_quota", {}).get("percent") or 0.0)),
+                    ("火山引擎 Agent Plan (月度)", float(volc_curr.get("monthly_quota", {}).get("percent") or 0.0)),
+                ]
+                top_agent, top_pct = max(quota_checks, key=lambda x: x[1])
                 trigger_payload = None
                 with STATUS_LOCK:
-                    if ag_pct < CIRCUIT_BREAKER["threshold"]:
+                    CIRCUIT_BREAKER["threshold"] = cfg_threshold
+                    if top_pct < cfg_threshold:
                         # 水位回落至安全线以下时自动解除挂起与冷却
                         if CIRCUIT_BREAKER.get("paused"):
                             CIRCUIT_BREAKER["paused"] = False
                         if CIRCUIT_BREAKER.get("dismissed_until", 0) > 0:
                             CIRCUIT_BREAKER["dismissed_until"] = 0
-                    elif ag_pct >= CIRCUIT_BREAKER["threshold"]:
+                    elif top_pct >= cfg_threshold:
                         if not CIRCUIT_BREAKER["triggered"] and now_ts >= CIRCUIT_BREAKER.get("dismissed_until", 0):
                             CIRCUIT_BREAKER["triggered"] = True
-                            CIRCUIT_BREAKER["agent"] = "Google Antigravity"
-                            CIRCUIT_BREAKER["current_usage"] = ag_pct
-                            CIRCUIT_BREAKER["message"] = f"Antigravity 5小时额度已达 {ag_pct}%，触碰 90% 警戒线！即将面临 Google 官方阶梯限流。"
+                            CIRCUIT_BREAKER["agent"] = top_agent
+                            CIRCUIT_BREAKER["current_usage"] = top_pct
+                            CIRCUIT_BREAKER["message"] = f"{top_agent} 额度消耗已达 {top_pct}%，触碰 {cfg_threshold}% 安全警戒线！"
                             CIRCUIT_BREAKER["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
                             trigger_payload = dict(CIRCUIT_BREAKER)
 
-                    volc_curr = LATEST_STATUS.get("volcengine", {})
                     curr_fp = _status_fingerprint(ag, cdx, wb, volc_curr, CIRCUIT_BREAKER)
                     changed = (curr_fp != last_fp)
                     last_fp = curr_fp
@@ -482,11 +512,24 @@ class CockpitHandler(BaseHTTPRequestHandler):
                 volc_cfg[f"{secret_key}_configured"] = bool(raw_val and str(raw_val).strip())
                 volc_cfg[f"{secret_key}_masked"] = _mask_secret(raw_val)
             wb_cfg = safe_cfg.setdefault("workbuddy", {})
-            for secret_key in ("token", "cookie"):
+            for secret_key in ("token", "cookie", "refresh_token"):
                 raw_val = wb_cfg.pop(secret_key, "")
                 wb_cfg[f"{secret_key}_configured"] = bool(raw_val and str(raw_val).strip())
                 wb_cfg[f"{secret_key}_masked"] = _mask_secret(raw_val)
+            cb_cfg = safe_cfg.setdefault("circuit_breaker", {})
+            cb_cfg.setdefault("threshold", 90.0)
             self.send_json(safe_cfg)
+            return
+
+        if path == "/api/workbuddy/auth/poll":
+            def _save_wb_tokens(upd):
+                c = load_config()
+                c.setdefault("workbuddy", {}).update(upd)
+                save_config(c)
+            res = poll_workbuddy_web_login(save_callback=_save_wb_tokens)
+            if res.get("status") == "success":
+                update_all_status(notify=True)
+            self.send_json(res)
             return
 
         self.send_error(404, "Not Found")
@@ -531,6 +574,12 @@ class CockpitHandler(BaseHTTPRequestHandler):
             self.send_json(res)
             return
 
+        # 1.6 启动 WorkBuddy 官方插件扫码登录 (免 7 天 Cookie 过期)
+        if path == "/api/workbuddy/auth/start":
+            res = start_workbuddy_web_login()
+            self.send_json(res)
+            return
+
         # 2. 更新配置
         if path == "/api/config/update":
             cfg = load_config()
@@ -544,6 +593,16 @@ class CockpitHandler(BaseHTTPRequestHandler):
                 cfg.setdefault("workbuddy", {}).update(wb_update)
             if isinstance(req_json.get("server"), dict):
                 cfg.setdefault("server", {}).update(req_json["server"])
+            if isinstance(req_json.get("circuit_breaker"), dict):
+                th = req_json["circuit_breaker"].get("threshold")
+                if th is not None:
+                    try:
+                        th_f = max(50.0, min(99.5, float(th)))
+                        cfg.setdefault("circuit_breaker", {})["threshold"] = th_f
+                        with STATUS_LOCK:
+                            CIRCUIT_BREAKER["threshold"] = th_f
+                    except (ValueError, TypeError):
+                        pass
             ok = save_config(cfg)
             update_all_status(notify=True)
             self.send_json({"success": ok, "message": "配置更新成功" if ok else "保存失败"})
@@ -731,6 +790,42 @@ class CockpitHandler(BaseHTTPRequestHandler):
                     task_id=req_json.get("task_id"),
                 )
                 self.send_json({"success": True, "run": run_rec})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/agents/fanout":
+            try:
+                agents = req_json.get("agents") or []
+                prompt = str(req_json.get("prompt") or "").strip()
+                if not agents or not isinstance(agents, list):
+                    self.send_json({"success": False, "message": "请至少选择一个 Agent"}, code=400)
+                    return
+                if not prompt:
+                    self.send_json({"success": False, "message": "广播指令不能为空"}, code=400)
+                    return
+                cfg = load_config()
+                def _on_run_update():
+                    snap = mc.get_snapshot()
+                    with STATUS_LOCK:
+                        LATEST_STATUS["mission_control"] = snap
+                    EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                    EVENT_HUB.broadcast_event("AGENT_RUN_UPDATED", {"runs": runner.list_runs()})
+
+                dispatched = []
+                for ag_name in agents[:4]:
+                    rec = runner.dispatch_task(
+                        agent=str(ag_name).strip().lower(),
+                        prompt=prompt,
+                        title=f"[并行对比] {prompt.splitlines()[0][:55]}",
+                        cwd=req_json.get("cwd"),
+                        priority=req_json.get("priority", "normal"),
+                        config=cfg,
+                        on_update=_on_run_update,
+                        on_notify=lambda t, m: send_macos_notification(t, m, subtitle="多 Agent 并行广播"),
+                    )
+                    dispatched.append(rec)
+                self.send_json({"success": True, "runs": dispatched, "count": len(dispatched)})
             except Exception as e:
                 self.send_json({"success": False, "message": str(e)}, code=400)
             return

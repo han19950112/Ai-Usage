@@ -5,14 +5,119 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWind
     var window: NSWindow!
     var webView: WKWebView!
     var loadingLabel: NSTextField!
+    var statusItem: NSStatusItem!
+    var statusTimer: Timer?
     var retryCount = 0
     let maxRetries = 15
     let targetURL = URL(string: "http://127.0.0.1:5999")!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
+        setupStatusBar()
         setupWindow()
         ensureServerAndLoad()
+        startStatusBarPolling()
+    }
+
+    func setupStatusBar() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let btn = statusItem.button {
+            btn.title = "🛸 Cockpit"
+            btn.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        }
+        rebuildStatusMenu(agLine: "⚡ Antigravity: 读取中...", cdxLine: "🧠 Codex: 读取中...", wbLine: "🤖 WorkBuddy: 读取中...", volcLine: "🌋 火山引擎: 读取中...", pendingCount: 0)
+    }
+
+    func rebuildStatusMenu(agLine: String, cdxLine: String, wbLine: String, volcLine: String, pendingCount: Int) {
+        let menu = NSMenu()
+        let header = NSMenuItem(title: "🛸 Agent Cockpit 实时配额", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        menu.addItem(NSMenuItem.separator())
+
+        for line in [agLine, cdxLine, wbLine, volcLine] {
+            let item = NSMenuItem(title: line, action: #selector(showMainWindow), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        if pendingCount > 0 {
+            menu.addItem(NSMenuItem.separator())
+            let appr = NSMenuItem(title: "🛡️ 待人工审批: \(pendingCount) 条 (点击处理)", action: #selector(showMainWindow), keyEquivalent: "")
+            appr.target = self
+            menu.addItem(appr)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let showItem = NSMenuItem(title: "🪟 打开驾驶舱主窗口", action: #selector(showMainWindow), keyEquivalent: "")
+        showItem.target = self
+        menu.addItem(showItem)
+        let refreshItem = NSMenuItem(title: "🔄 立即刷新配额", action: #selector(pollStatusBarNow), keyEquivalent: "")
+        refreshItem.target = self
+        menu.addItem(refreshItem)
+        menu.addItem(NSMenuItem.separator())
+        let quitItem = NSMenuItem(title: "退出 Agent Cockpit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(quitItem)
+        statusItem.menu = menu
+    }
+
+    @objc func showMainWindow() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func startStatusBarPolling() {
+        pollStatusBarNow()
+        statusTimer = Timer.scheduledTimer(timeInterval: 15.0, target: self, selector: #selector(pollStatusBarNow), userInfo: nil, repeats: true)
+    }
+
+    @objc func pollStatusBarNow() {
+        var req = URLRequest(url: URL(string: "http://127.0.0.1:5999/api/status")!)
+        req.timeoutInterval = 3.0
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let self = self, let data = data,
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+            let ag = root["antigravity"] as? [String: Any] ?? [:]
+            let agQ = ag["quota"] as? [String: Any] ?? [:]
+            let ag5 = agQ["five_hour_usage"] as? [String: Any] ?? [:]
+            let agW = agQ["weekly_usage"] as? [String: Any] ?? [:]
+            let agRem5 = (ag5["remaining_percent"] as? Double) ?? max(0, 100 - ((ag5["percent"] as? Double) ?? 0))
+            let agRemW = (agW["remaining_percent"] as? Double) ?? max(0, 100 - ((agW["percent"] as? Double) ?? 0))
+
+            let cdx = root["codex"] as? [String: Any] ?? [:]
+            let cdx5 = cdx["five_hour_usage"] as? [String: Any] ?? [:]
+            let cdxW = cdx["weekly_usage"] as? [String: Any] ?? [:]
+            let cdxRC = cdx["reset_credits"] as? [String: Any] ?? [:]
+            let cdxRem5 = (cdx5["remaining_percent"] as? Double) ?? max(0, 100 - ((cdx5["percent"] as? Double) ?? 0))
+            let cdxRemW = (cdxW["remaining_percent"] as? Double) ?? max(0, 100 - ((cdxW["percent"] as? Double) ?? 0))
+            let cdxAvail = (cdxRC["available_count"] as? Int) ?? 0
+
+            let wb = root["workbuddy"] as? [String: Any] ?? [:]
+            let wbPts = (wb["total_points"] as? Double) ?? 0
+            let wbDays = (wb["consecutive_days"] as? Int) ?? 0
+
+            let volc = root["volcengine"] as? [String: Any] ?? [:]
+            let volc5 = (volc["five_hour_quota"] as? [String: Any])?["percent"] as? Double ?? 0
+            let volcW = (volc["weekly_quota"] as? [String: Any])?["percent"] as? Double ?? 0
+
+            let mc = root["mission_control"] as? [String: Any] ?? [:]
+            let mcSum = mc["summary"] as? [String: Any] ?? [:]
+            let pending = (mcSum["pending_approvals"] as? Int) ?? 0
+
+            let cb = root["circuit_breaker"] as? [String: Any] ?? [:]
+            let cbTripped = (cb["triggered"] as? Bool) ?? false
+
+            let prefix = (cbTripped || pending > 0) ? "🚨" : "🛸"
+            let titleStr = String(format: "%@ AG %.0f%% · CDX %.0f%%", prefix, agRem5, cdxRem5)
+            let agLine = String(format: "⚡ Antigravity: 5h剩 %.0f%% · 周剩 %.0f%%", agRem5, agRemW)
+            let cdxLine = String(format: "🧠 Codex: 5h剩 %.0f%% · 周剩 %.0f%% (重置可用 %d)", cdxRem5, cdxRemW, cdxAvail)
+            let wbLine = String(format: "🤖 WorkBuddy: %.1f 积分 · 连续 %d 天", wbPts, wbDays)
+            let volcLine = String(format: "🌋 火山引擎: 5h已用 %.1f%% · 7d已用 %.1f%%", volc5, volcW)
+
+            DispatchQueue.main.async {
+                self.statusItem.button?.title = titleStr
+                self.rebuildStatusMenu(agLine: agLine, cdxLine: cdxLine, wbLine: wbLine, volcLine: volcLine, pendingCount: pending)
+            }
+        }.resume()
     }
 
     func setupMainMenu() {
@@ -223,6 +328,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWind
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            showMainWindow()
+        }
         return true
     }
 }
