@@ -484,23 +484,26 @@ def get_antigravity_status():
             "human_used": f"已用 {used_pct}% (剩余 {rem_pct}%)"
         }
 
-        # 周额度按订阅周期健康度计算
+        # 官方 QuotaInfo 仅提供 5小时滑动窗口；7天周用量使用本地近 7 天真实 Transcript Token 统计（避免误复用 5h 百分比）
         utc_now = time.gmtime(now_ts)
         days_to_monday = (7 - utc_now.tm_wday) % 7
-        if days_to_monday == 0 and (utc_now.tm_hour > 0 or utc_now.tm_min > 0): days_to_monday = 7
+        if days_to_monday == 0 and (utc_now.tm_hour > 0 or utc_now.tm_min > 0):
+            days_to_monday = 7
         next_reset_epoch = now_ts + (days_to_monday * 86400) - (utc_now.tm_hour * 3600 + utc_now.tm_min * 60 + utc_now.tm_sec)
         sec_left_wk = max(0, int(next_reset_epoch - now_ts))
         left_days = sec_left_wk // 86400
         left_hours = (sec_left_wk % 86400) // 3600
-        weekly_reset_str = f"{left_days}天{left_hours}小时后周重置"
+        weekly_reset_str = f"{left_days}天{left_hours}小时后周重置 · 本地7天实耗"
 
+        limit_wk = 10000000
+        pct_wk = round(min(100.0, (tokens_wk / limit_wk) * 100), 1)
         status["quota"]["weekly_usage"] = {
-            "used_tokens": int(used_pct * 100000),
-            "limit_tokens": 10000000,
-            "percent": used_pct,
-            "status": "normal",
+            "used_tokens": tokens_wk,
+            "limit_tokens": limit_wk,
+            "percent": pct_wk,
+            "status": "critical" if pct_wk >= 90 else ("warning" if pct_wk >= 75 else "normal"),
             "reset_countdown_human": weekly_reset_str,
-            "human_used": f"已用 {used_pct}% (剩余 {rem_pct}%)"
+            "human_used": f"{tokens_wk / 1000000:.2f}M / {limit_wk / 1000000:.0f}M ({pct_wk}%)"
         }
 
         # 双模型池（Gemini 3.8 Flash vs Claude Sonnet 4.6）真实官方配额
