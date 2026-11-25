@@ -223,6 +223,11 @@ def update_all_status(notify=True):
         LATEST_STATUS["mission_control"] = mc.get_snapshot()
         snapshot = dict(LATEST_STATUS)
 
+    try:
+        mc.record_usage_snapshot(snapshot, min_interval_sec=600)
+    except Exception:
+        pass
+
     if notify:
         EVENT_HUB.broadcast_event("STATE_DELTA", snapshot)
 
@@ -434,6 +439,10 @@ class CockpitHandler(BaseHTTPRequestHandler):
 
         if path == "/api/mc/snapshot":
             self.send_json(mc.get_snapshot())
+            return
+
+        if path == "/api/mc/trends":
+            self.send_json(mc.get_usage_trends())
             return
 
         if path.startswith("/api/mc/approvals/"):

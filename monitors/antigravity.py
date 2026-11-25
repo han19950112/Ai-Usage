@@ -16,6 +16,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -29,6 +30,9 @@ _CACHE_LOCK = threading.Lock()
 # CDP failure backoff to avoid 1s timeout every 2s when IDE has no --remote-debugging-port
 _CDP_BACKOFF = {"last_fail_ts": 0.0, "port": None}
 _CDP_BACKOFF_SECONDS = 30.0
+# agy CLI /usage cache (60s TTL, zero-cost official dual-window quota)
+_AGY_CLI_CACHE = {"ts": 0.0, "data": None, "bin_checked": False, "bin_path": None}
+_AGY_CLI_LOCK = threading.Lock()
 
 def parse_iso_ts(iso_str):
     if not iso_str:
@@ -136,6 +140,110 @@ def _parse_transcript_file(fpath, mtime, size):
     except Exception:
         pass
     return (mtime, size, steps, t_inp, t_out, t_cache, latest_ts, latest_step)
+
+def _find_agy_binary():
+    for name in ("agy",):
+        found = shutil.which(name)
+        if found:
+            return found
+    for candidate in (
+        "/opt/homebrew/bin/agy",
+        "/usr/local/bin/agy",
+        os.path.expanduser("~/.local/bin/agy"),
+        os.path.expanduser("~/.antigravity/bin/agy"),
+    ):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+def _format_reset_countdown(reset_ts, now_ts):
+    if not reset_ts or reset_ts <= now_ts:
+        return "随时可用", "随时可用"
+    diff = int(reset_ts - now_ts)
+    days = diff // 86400
+    hours = (diff % 86400) // 3600
+    mins = (diff % 3600) // 60
+    if days > 0:
+        cd = f"{days}天{hours}小时后重置"
+    elif hours > 0:
+        cd = f"{hours}小时{mins:02d}分后完全重置"
+    else:
+        cd = f"{mins}分钟后重置"
+    exp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(reset_ts))
+    return cd, exp
+
+def fetch_agy_cli_usage():
+    """
+    Query official Antigravity dual-window (5h + weekly) quota via `agy -p /usage --output-format json`.
+    Inspired by stablyai/orca: zero quota/tokens spent, works even when IDE is closed.
+    Cached for 60s so 2s polling remains ultra-fast.
+    """
+    now = time.time()
+    with _AGY_CLI_LOCK:
+        if (now - _AGY_CLI_CACHE["ts"]) < 60.0 and _AGY_CLI_CACHE["bin_checked"]:
+            return _AGY_CLI_CACHE["data"]
+        bin_path = _find_agy_binary()
+        _AGY_CLI_CACHE["bin_checked"] = True
+        _AGY_CLI_CACHE["bin_path"] = bin_path
+        if not bin_path:
+            _AGY_CLI_CACHE["ts"] = now
+            _AGY_CLI_CACHE["data"] = None
+            return None
+
+    env = dict(os.environ)
+    env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true"
+    parsed_result = None
+    try:
+        proc = subprocess.run(
+            [bin_path, "-p", "/usage", "--output-format", "json", "--print-timeout", "20s"],
+            capture_output=True,
+            text=True,
+            timeout=25,
+            env=env,
+        )
+        raw_out = (proc.stdout or "").strip()
+        if proc.returncode == 0 and raw_out:
+            # Find JSON line in output
+            env_obj = None
+            for line in reversed(raw_out.splitlines()):
+                line = line.strip()
+                if line.startswith("{") and line.endswith("}"):
+                    try:
+                        env_obj = json.loads(line)
+                        break
+                    except Exception:
+                        pass
+            if isinstance(env_obj, dict):
+                cmd_data = (env_obj.get("command") or {}).get("data") or env_obj.get("data") or env_obj
+                groups = cmd_data.get("groups") if isinstance(cmd_data, dict) else None
+                if isinstance(groups, list) and groups:
+                    buckets = []
+                    for grp in groups:
+                        if not isinstance(grp, dict):
+                            continue
+                        gname = str(grp.get("name") or "")
+                        for b in grp.get("buckets") or []:
+                            if not isinstance(b, dict) or b.get("disabled") is True:
+                                continue
+                            rf = b.get("remaining_fraction")
+                            if isinstance(rf, (int, float)):
+                                buckets.append({
+                                    "id": str(b.get("id") or "").lower(),
+                                    "group": gname,
+                                    "window": str(b.get("window") or "").lower(),
+                                    "remaining_pct": round(max(0.0, min(100.0, float(rf) * 100.0)), 1),
+                                    "used_pct": round(max(0.0, min(100.0, (1.0 - float(rf)) * 100.0)), 1),
+                                    "reset_ts": parse_iso_ts(b.get("reset_time")),
+                                })
+                    if buckets:
+                        parsed_result = {"buckets": buckets, "tier": cmd_data.get("tier") or cmd_data.get("plan")}
+    except Exception:
+        parsed_result = None
+
+    with _AGY_CLI_LOCK:
+        _AGY_CLI_CACHE["ts"] = time.time()
+        _AGY_CLI_CACHE["data"] = parsed_result
+    return parsed_result
 
 def fetch_official_antigravity_quota(port=58321):
     """Query Antigravity's internal React Fiber store via local CDP port (with 30s failure backoff)."""
@@ -443,7 +551,88 @@ def get_antigravity_status():
         "cache_savings_ratio": f"{round(total_cached / max(1, total_input), 1)}x"
     }
 
-    # 3. 优先通过官方 CDP 获取 100% 权威真实的 QuotaInfo 与双模型池
+    # 3. 优先通过官方 agy CLI (/usage) 获取完整双窗口 (Gemini 5h/周 + Claude&GPT 5h/周)，其次 CDP 直连，最后本地日志
+    agy_cli_data = fetch_agy_cli_usage()
+    now_ts = int(time.time())
+
+    if agy_cli_data and agy_cli_data.get("buckets"):
+        status["data_source"] = "官方 agy CLI 双窗口直连"
+        buckets = agy_cli_data["buckets"]
+
+        def _pick_bucket(group_kw, win_kw):
+            for b in buckets:
+                if group_kw in (b["group"].lower() + " " + b["id"]) and b["window"] == win_kw:
+                    return b
+            return None
+
+        g5 = _pick_bucket("gemini", "5h") or next((b for b in buckets if b["window"] == "5h"), None)
+        gw = _pick_bucket("gemini", "weekly") or next((b for b in buckets if b["window"] == "weekly"), None)
+        c5 = _pick_bucket("claude", "5h") or _pick_bucket("3p", "5h")
+        cw = _pick_bucket("claude", "weekly") or _pick_bucket("3p", "weekly")
+
+        if g5:
+            cd5, exp5 = _format_reset_countdown(g5["reset_ts"], now_ts)
+            u5, r5 = g5["used_pct"], g5["remaining_pct"]
+            status["quota"]["five_hour_usage"] = {
+                "used_tokens": int(u5 * 15000),
+                "limit_tokens": 1500000,
+                "remaining_percent": r5,
+                "percent": u5,
+                "status": "critical" if u5 >= 90 else ("warning" if u5 >= 75 else "normal"),
+                "reset_countdown_human": cd5,
+                "reset_expire_time": exp5,
+                "human_used": f"已用 {u5}% (剩余 {r5}%)"
+            }
+        if gw:
+            cdw, expw = _format_reset_countdown(gw["reset_ts"], now_ts)
+            uw, rw = gw["used_pct"], gw["remaining_pct"]
+            status["quota"]["weekly_usage"] = {
+                "used_tokens": int(uw * 100000),
+                "limit_tokens": 10000000,
+                "remaining_percent": rw,
+                "percent": uw,
+                "status": "critical" if uw >= 90 else ("warning" if uw >= 75 else "normal"),
+                "reset_countdown_human": cdw,
+                "reset_expire_time": expw,
+                "human_used": f"已用 {uw}% (剩余 {rw}%)"
+            }
+
+        g_u5 = g5["used_pct"] if g5 else 0.0
+        g_uw = gw["used_pct"] if gw else 0.0
+        g_rw = gw["remaining_pct"] if gw else 100.0
+        c_u5 = c5["used_pct"] if c5 else 0.0
+        c_uw = cw["used_pct"] if cw else 0.0
+        c_rw = cw["remaining_pct"] if cw else 100.0
+        active_g_label = status["quota"]["current_model"] if "claude" not in status["quota"]["current_model"].lower() else "Gemini Models"
+        status["quota"]["dual_models"] = [
+            {
+                "id": "model_gemini",
+                "name": f"⚡ {active_g_label} (主力套)",
+                "type": "官方双窗口直连 · Gemini 池",
+                "five_hour_used": f"已用 {g_u5}%",
+                "weekly_used": f"周剩 {g_rw}%",
+                "limit_label": "Google AI Pro 官方池",
+                "percent_5h": g_u5,
+                "percent_week": g_uw,
+                "status": "充足" if g_u5 < 70 else ("警示" if g_u5 < 90 else "紧张"),
+                "level": "normal" if g_u5 < 70 else "warning"
+            },
+            {
+                "id": "model_claude",
+                "name": "🧠 Claude & GPT (高阶套)",
+                "type": "官方双窗口直连 · 第三方高阶池",
+                "five_hour_used": f"已用 {c_u5}%",
+                "weekly_used": f"周剩 {c_rw}%",
+                "limit_label": "独立第三方高阶池",
+                "percent_5h": c_u5,
+                "percent_week": c_uw,
+                "status": "100% 充裕" if (c_u5 == 0 and c_uw == 0) else f"周剩 {c_rw}%",
+                "level": "normal" if c_u5 < 70 else "warning"
+            }
+        ]
+        return status
+
+    # 3b. 次选通过官方 CDP 获取权威 5h QuotaInfo
     official_data = fetch_official_antigravity_quota(cdp_port)
     now_ts = int(time.time())
 

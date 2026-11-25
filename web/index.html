@@ -360,6 +360,9 @@
         <button class="nav-item active" id="nav-quota" onclick="switchView('quota')">
           <span class="nav-item-left"><span>📊</span><span>配额监控大屏</span></span>
         </button>
+        <button class="nav-item" id="nav-trends" onclick="switchView('trends')">
+          <span class="nav-item-left"><span>📈</span><span>用量趋势分析</span></span>
+        </button>
       </div>
 
       <div class="nav-group">
@@ -793,6 +796,71 @@
   -H "Content-Type: application/json" \
   -d '{"agent":"codex","title":"执行生产部署","risk_level":"high","action_preview":"git push origin main"}'</pre>
             </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================================
+         Usage Trends View (近 7 天 Token 趋势与模型消耗分析)
+         ========================================================================= -->
+    <section class="mc-view" id="trendsView">
+      <div class="mc-kpis">
+        <div class="mc-kpi">
+          <div class="mc-kpi-label">⚡ 今日有效 Token</div>
+          <div class="mc-kpi-val" id="trKpiToday" style="color:var(--accent);">0</div>
+        </div>
+        <div class="mc-kpi">
+          <div class="mc-kpi-label">📅 近 7 天有效 Token</div>
+          <div class="mc-kpi-val" id="trKpi7d" style="color:var(--green);">0</div>
+        </div>
+        <div class="mc-kpi">
+          <div class="mc-kpi-label">🚀 近 7 天 Prompt 缓存命中</div>
+          <div class="mc-kpi-val" id="trKpiCached" style="color:var(--purple);">0</div>
+        </div>
+        <div class="mc-kpi">
+          <div class="mc-kpi-label">💾 历史快照采集点数</div>
+          <div class="mc-kpi-val" id="trKpiSnaps" style="color:var(--text);">0</div>
+        </div>
+      </div>
+
+      <div class="mc-layout">
+        <div>
+          <div class="mc-panel">
+            <div class="mc-panel-head">
+              <h3>📊 近 7 天每日有效 Token 消耗柱状图</h3>
+              <button class="btn" style="padding:4px 9px; font-size:11px;" onclick="fetchUsageTrends()">🔄 刷新趋势</button>
+            </div>
+            <div id="trDailyBarChart" style="width:100%; min-height:230px;"></div>
+          </div>
+
+          <div class="mc-panel">
+            <div class="mc-panel-head">
+              <h3>📉 多智能体 5h 配额水位历史轨迹</h3>
+              <span style="font-size:11px; color:var(--text-muted);">SQLite WAL 每 10 分钟自动采样</span>
+            </div>
+            <div id="trQuotaLineChart" style="width:100%; min-height:210px;"></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="mc-panel">
+            <div class="mc-panel-head">
+              <h3>🤖 近 7 天模型消耗分布排行</h3>
+            </div>
+            <div id="trModelBreakdown">
+              <div style="font-size:12px; color:var(--text-muted);">加载中...</div>
+            </div>
+          </div>
+
+          <div class="mc-panel">
+            <div class="mc-panel-head">
+              <h3>💡 双窗口直连说明</h3>
+            </div>
+            <div style="font-size:12px; color:var(--text-muted); line-height:1.6;">
+              <div>• <strong>Antigravity 官方双窗口</strong>：若本机安装了官方 <code style="color:var(--accent);">agy</code> CLI，面板会自动优先调用 <code style="color:var(--accent);">agy -p /usage --output-format json</code>（零 Token 消耗，同时读取 Gemini 与 Claude/GPT 的 5h + 周官方限额）。</div>
+              <div style="margin-top:6px;">• 未安装 <code style="color:var(--accent);">agy</code> 时，自动回退到 CDP 官方直连（5h 官方 + 7天本地实耗）。</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1277,6 +1345,7 @@
 
     const VIEW_META = {
       quota: { title: '📊 配额监控大屏', sub: '多智能体统一监控 · 5小时/周/月订阅配额 · 自动签到与积分追踪' },
+      trends: { title: '📈 用量趋势与历史分析', sub: '近 7 天每日 Token 消耗柱状图 · 按模型分布排行 · 多智能体配额水位轨迹' },
       mission: { title: '🎛️ Mission Control 综合控制面', sub: '多 Agent 任务派发 · 高危操作审批门控 · 实时会话与审计时间线' },
       approvals: { title: '🛡️ 待审批队列 (Human-in-the-Loop)', sub: '集中审批所有 Agent 提交的高危命令、代码推送与敏感操作' },
       tasks: { title: '📋 多 Agent 任务看板', sub: '跨 Antigravity / Codex / WorkBuddy / 火山引擎统一管理任务状态' },
@@ -1314,11 +1383,19 @@
         document.getElementById('drawerBackdrop').classList.remove('active');
       }
 
+      const trendsEl = document.getElementById('trendsView');
       if (view === 'quota') {
         quotaEl.style.display = 'grid';
         missionEl.classList.remove('active');
+        if (trendsEl) trendsEl.classList.remove('active');
+      } else if (view === 'trends') {
+        quotaEl.style.display = 'none';
+        missionEl.classList.remove('active');
+        if (trendsEl) trendsEl.classList.add('active');
+        fetchUsageTrends();
       } else {
         quotaEl.style.display = 'none';
+        if (trendsEl) trendsEl.classList.remove('active');
         missionEl.classList.add('active');
         const layout = document.getElementById('mcLayoutGrid');
         const leftCol = document.getElementById('mcLeftCol');
@@ -1572,6 +1649,132 @@
         playAlertBeep();
         showToast('已模拟提交一条高危待审批请求', '🛡️');
         fetchMissionControl();
+      }
+    }
+
+    // =========================================================================
+    // Usage Trends SVG Renderer (纯 SVG 零依赖趋势图表)
+    // =========================================================================
+    function fmtTokens(n) {
+      n = Number(n) || 0;
+      if (n >= 1000000) return (n / 1000000).toFixed(2) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+      return String(n);
+    }
+
+    async function fetchUsageTrends() {
+      try {
+        const resp = await fetch('/api/mc/trends');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        renderUsageTrends(data);
+      } catch (err) {
+        console.error('Fetch trends error:', err);
+      }
+    }
+
+    function renderUsageTrends(data) {
+      const sum = data.summary || {};
+      document.getElementById('trKpiToday').innerText = fmtTokens(sum.today_tokens || 0);
+      document.getElementById('trKpi7d').innerText = fmtTokens(sum.total_7d_tokens || 0);
+      document.getElementById('trKpiCached').innerText = fmtTokens(sum.total_7d_cached || 0);
+      document.getElementById('trKpiSnaps').innerText = (sum.snapshot_count || 0) + ' 点';
+
+      // 1. 7-Day Daily Bar Chart (SVG)
+      const daily = data.daily_tokens || [];
+      const barBox = document.getElementById('trDailyBarChart');
+      const maxVal = Math.max(1, ...daily.map(d => d.total || 0));
+      const W = 560, H = 210, padL = 16, padR = 16, padT = 24, padB = 34;
+      const chartW = W - padL - padR, chartH = H - padT - padB;
+      const step = chartW / Math.max(1, daily.length);
+      const barW = Math.min(44, step * 0.56);
+
+      const barsSvg = daily.map((d, i) => {
+        const h = Math.max(3, ((d.total || 0) / maxVal) * chartH);
+        const x = padL + i * step + (step - barW) / 2;
+        const y = padT + (chartH - h);
+        const lbl = escapeHtml(String(d.day || '').slice(5));
+        const valLbl = fmtTokens(d.total || 0);
+        return `
+          <g>
+            <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="6" fill="url(#barGrad)">
+              <title>${escapeHtml(d.day)}: ${valLbl} (缓存命中 ${fmtTokens(d.cached || 0)})</title>
+            </rect>
+            <text x="${(x + barW / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="#c9d1d9" font-size="11" font-family="ui-monospace,monospace">${valLbl}</text>
+            <text x="${(x + barW / 2).toFixed(1)}" y="${(H - 10).toFixed(1)}" text-anchor="middle" fill="#8b949e" font-size="11" font-family="ui-monospace,monospace">${lbl}</text>
+          </g>
+        `;
+      }).join('');
+
+      barBox.innerHTML = `
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
+          <defs>
+            <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#58a6ff"/>
+              <stop offset="100%" stop-color="#1f6feb" stop-opacity="0.7"/>
+            </linearGradient>
+          </defs>
+          <line x1="${padL}" y1="${padT + chartH}" x2="${W - padR}" y2="${padT + chartH}" stroke="rgba(240,246,252,0.12)" stroke-width="1"/>
+          ${barsSvg}
+        </svg>
+      `;
+
+      // 2. Model Breakdown
+      const models = data.model_breakdown || [];
+      const mBox = document.getElementById('trModelBreakdown');
+      if (models.length === 0) {
+        mBox.innerHTML = '<div style="font-size:12px; color:var(--text-muted);">近 7 天暂无本地模型记录</div>';
+      } else {
+        const mMax = Math.max(1, ...models.map(m => m.tokens || 0));
+        mBox.innerHTML = models.map(m => {
+          const pct = Math.round(((m.tokens || 0) / mMax) * 100);
+          return `
+            <div style="margin-bottom:12px;">
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                <span style="color:var(--text); font-weight:500;">${escapeHtml(m.model)}</span>
+                <span style="color:var(--accent); font-family:ui-monospace,monospace;">${fmtTokens(m.tokens)} · ${m.calls}次</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill fill-green" style="width:${pct}%; background:linear-gradient(90deg,#1f6feb,#bc8cff);"></div>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">缓存命中: ${fmtTokens(m.cached)}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // 3. Quota Waterline Sparkline (SVG)
+      const snaps = data.snapshots || [];
+      const lineBox = document.getElementById('trQuotaLineChart');
+      if (snaps.length < 2) {
+        lineBox.innerHTML = '<div style="font-size:12.5px; color:var(--text-muted); padding:28px 0; text-align:center;">已开始每 10 分钟自动采样（当前 ' + snaps.length + ' 个点），采集满 2 个点后将自动绘制多智能体配额水位曲线。</div>';
+      } else {
+        const LW = 560, LH = 190, lpL = 32, lpR = 16, lpT = 18, lpB = 26;
+        const cw = LW - lpL - lpR, ch = LH - lpT - lpB;
+        const makePath = (key) => snaps.map((s, idx) => {
+          const x = lpL + (idx / Math.max(1, snaps.length - 1)) * cw;
+          const y = lpT + ch - (clampPct(s[key] || 0) / 100) * ch;
+          return `${idx === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        const firstT = escapeHtml(String(snaps[0].created_at || '').slice(5, 16));
+        const lastT = escapeHtml(String(snaps[snaps.length - 1].created_at || '').slice(5, 16));
+        lineBox.innerHTML = `
+          <div style="display:flex; gap:14px; font-size:11.5px; margin-bottom:6px; color:var(--text-muted);">
+            <span><span style="color:#58a6ff;">●</span> Antigravity 5h</span>
+            <span><span style="color:#3fb950;">●</span> Codex 5h</span>
+            <span><span style="color:#d29922;">●</span> 火山引擎 7d</span>
+          </div>
+          <svg viewBox="0 0 ${LW} ${LH}" style="width:100%; height:auto; display:block;">
+            <line x1="${lpL}" y1="${lpT + ch * 0.1}" x2="${LW - lpR}" y2="${lpT + ch * 0.1}" stroke="rgba(248,81,73,0.35)" stroke-dasharray="4 4"/>
+            <text x="2" y="${lpT + ch * 0.1 + 4}" fill="#f85149" font-size="10">90%</text>
+            <line x1="${lpL}" y1="${lpT + ch}" x2="${LW - lpR}" y2="${lpT + ch}" stroke="rgba(240,246,252,0.12)"/>
+            <path d="${makePath('ag_5h_pct')}" fill="none" stroke="#58a6ff" stroke-width="2.2"/>
+            <path d="${makePath('cdx_5h_pct')}" fill="none" stroke="#3fb950" stroke-width="2.2"/>
+            <path d="${makePath('volc_wk_pct')}" fill="none" stroke="#d29922" stroke-width="2.2"/>
+            <text x="${lpL}" y="${LH - 6}" fill="#8b949e" font-size="10" font-family="ui-monospace,monospace">${firstT}</text>
+            <text x="${LW - lpR}" y="${LH - 6}" text-anchor="end" fill="#8b949e" font-size="10" font-family="ui-monospace,monospace">${lastT}</text>
+          </svg>
+        `;
       }
     }
 

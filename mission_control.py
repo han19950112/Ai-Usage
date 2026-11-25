@@ -77,6 +77,22 @@ def init_db():
                     message TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS usage_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts INTEGER NOT NULL,
+                    day TEXT NOT NULL,
+                    hour TEXT NOT NULL,
+                    ag_5h_pct REAL DEFAULT 0,
+                    ag_wk_pct REAL DEFAULT 0,
+                    ag_tokens_total INTEGER DEFAULT 0,
+                    cdx_5h_pct REAL DEFAULT 0,
+                    cdx_wk_pct REAL DEFAULT 0,
+                    volc_5h_pct REAL DEFAULT 0,
+                    volc_wk_pct REAL DEFAULT 0,
+                    wb_points REAL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_usage_snapshots_ts ON usage_snapshots(ts);
             """)
             conn.commit()
         finally:
@@ -336,6 +352,148 @@ def get_snapshot():
         "tasks": tasks,
         "live_sessions": live_sessions,
         "activity_logs": logs,
+    }
+
+
+def record_usage_snapshot(status_dict, min_interval_sec=600):
+    """Persist a periodic usage snapshot to SQLite WAL (throttled by min_interval_sec)."""
+    now_ts = int(time.time())
+    day = time.strftime("%Y-%m-%d", time.localtime(now_ts))
+    hour = time.strftime("%Y-%m-%d %H:00", time.localtime(now_ts))
+    now_str = _now_str()
+
+    ag = status_dict.get("antigravity") or {}
+    ag_q = ag.get("quota") or {}
+    ag_t = ag_q.get("tokens") or {}
+    ag_5h = float((ag_q.get("five_hour_usage") or {}).get("percent") or 0)
+    ag_wk = float((ag_q.get("weekly_usage") or {}).get("percent") or 0)
+    ag_total = int(ag_t.get("total_input") or 0) + int(ag_t.get("total_output") or 0)
+
+    cdx = status_dict.get("codex") or {}
+    cdx_5h = float((cdx.get("five_hour_usage") or {}).get("percent") or 0)
+    cdx_wk = float((cdx.get("weekly_usage") or {}).get("percent") or 0)
+
+    volc = status_dict.get("volcengine") or {}
+    volc_5h = float((volc.get("five_hour_quota") or {}).get("percent") or 0)
+    volc_wk = float((volc.get("weekly_quota") or {}).get("percent") or 0)
+
+    wb = status_dict.get("workbuddy") or {}
+    wb_pts = float(wb.get("total_points") or 0)
+
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            last = conn.execute("SELECT ts FROM usage_snapshots ORDER BY ts DESC LIMIT 1").fetchone()
+            if last and (now_ts - int(last["ts"])) < min_interval_sec:
+                return False
+            conn.execute(
+                """
+                INSERT INTO usage_snapshots
+                (ts, day, hour, ag_5h_pct, ag_wk_pct, ag_tokens_total, cdx_5h_pct, cdx_wk_pct, volc_5h_pct, volc_wk_pct, wb_points, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (now_ts, day, hour, ag_5h, ag_wk, ag_total, cdx_5h, cdx_wk, volc_5h, volc_wk, wb_pts, now_str),
+            )
+            # Prune snapshots older than 30 days
+            conn.execute("DELETE FROM usage_snapshots WHERE ts < ?", (now_ts - 30 * 86400,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+
+def _aggregate_local_7d_tokens():
+    """Aggregate real daily & per-model tokens from Antigravity transcripts over the last 7 days."""
+    from datetime import datetime
+    now_ts = int(time.time())
+    days_order = [time.strftime("%Y-%m-%d", time.localtime(now_ts - i * 86400)) for i in range(6, -1, -1)]
+    daily_map = {d: {"day": d, "input": 0, "output": 0, "cached": 0, "total": 0} for d in days_order}
+    model_map = {}
+
+    brain_dir = os.path.expanduser("~/.gemini/antigravity/brain")
+    if os.path.isdir(brain_dir):
+        cutoff = now_ts - 7 * 86400
+        for fpath in glob.glob(os.path.join(brain_dir, "*", ".system_generated", "logs", "transcript.jsonl")):
+            try:
+                if os.path.getmtime(fpath) < cutoff:
+                    continue
+                mt = os.path.getmtime(fpath)
+                with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        if '"model"' not in line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                            m = obj.get("model")
+                            if not m:
+                                continue
+                            ts_str = obj.get("created_at") or ""
+                            step_ts = 0
+                            if ts_str:
+                                try:
+                                    step_ts = int(datetime.fromisoformat(str(ts_str).replace("Z", "+00:00")).timestamp())
+                                except Exception:
+                                    step_ts = int(mt)
+                            else:
+                                step_ts = int(mt)
+                            if step_ts < cutoff:
+                                continue
+                            d_key = time.strftime("%Y-%m-%d", time.localtime(step_ts))
+                            inp = int(obj.get("input_tokens") or 0)
+                            out = int(obj.get("output_tokens") or 0)
+                            cache = int(obj.get("cache_read_tokens") or 0)
+                            eff = inp + out
+                            if d_key in daily_map:
+                                daily_map[d_key]["input"] += inp
+                                daily_map[d_key]["output"] += out
+                                daily_map[d_key]["cached"] += cache
+                                daily_map[d_key]["total"] += eff
+                            m_str = str(m)
+                            if m_str not in model_map:
+                                model_map[m_str] = {"model": m_str, "tokens": 0, "cached": 0, "calls": 0}
+                            model_map[m_str]["tokens"] += eff
+                            model_map[m_str]["cached"] += cache
+                            model_map[m_str]["calls"] += 1
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+    daily_list = [daily_map[d] for d in days_order]
+    models_list = sorted(model_map.values(), key=lambda x: x["tokens"], reverse=True)[:8]
+    total_7d_tokens = sum(d["total"] for d in daily_list)
+    total_7d_cached = sum(d["cached"] for d in daily_list)
+    today_tokens = daily_list[-1]["total"] if daily_list else 0
+    return {
+        "daily_tokens": daily_list,
+        "model_breakdown": models_list,
+        "total_7d_tokens": total_7d_tokens,
+        "total_7d_cached": total_7d_cached,
+        "today_tokens": today_tokens,
+    }
+
+
+def get_usage_trends():
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            snaps = [dict(r) for r in conn.execute(
+                "SELECT * FROM usage_snapshots ORDER BY ts DESC LIMIT 48"
+            ).fetchall()]
+        finally:
+            conn.close()
+    snaps.reverse()
+    local_7d = _aggregate_local_7d_tokens()
+    return {
+        "snapshots": snaps,
+        "daily_tokens": local_7d["daily_tokens"],
+        "model_breakdown": local_7d["model_breakdown"],
+        "summary": {
+            "today_tokens": local_7d["today_tokens"],
+            "total_7d_tokens": local_7d["total_7d_tokens"],
+            "total_7d_cached": local_7d["total_7d_cached"],
+            "snapshot_count": len(snaps),
+        },
     }
 
 
