@@ -242,6 +242,52 @@
     }
     .toast.show { transform: translateX(-50%) translateY(0); }
 
+    /* =========================================================================
+       Mission Control (多 Agent 任务与审批中心)
+       ========================================================================= */
+    .view-tabs { display: inline-flex; background: rgba(13, 17, 23, 0.8); border: 1px solid var(--card-border); border-radius: 10px; padding: 3px; gap: 4px; }
+    .view-tab { background: transparent; border: none; color: var(--text-muted); padding: 6px 13px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; }
+    .view-tab:hover { color: var(--text); }
+    .view-tab.active { background: rgba(88, 166, 255, 0.18); color: #fff; box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.35); }
+    .tab-badge { background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px; min-width: 18px; text-align: center; display: none; }
+    .tab-badge.show { display: inline-block; }
+
+    .mc-view { display: none; }
+    .mc-view.active { display: block; }
+    .mc-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+    .mc-kpi { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px 16px; }
+    .mc-kpi-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .mc-kpi-val { font-size: 24px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, monospace; }
+
+    .mc-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; align-items: start; }
+    .mc-panel { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 18px; margin-bottom: 20px; }
+    .mc-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
+    .mc-panel-head h3 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+
+    .risk-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; text-transform: uppercase; font-family: ui-monospace, monospace; }
+    .risk-critical { background: rgba(248, 81, 73, 0.2); color: #ff7b72; border: 1px solid rgba(248, 81, 73, 0.45); }
+    .risk-high { background: rgba(210, 153, 34, 0.2); color: #e3b341; border: 1px solid rgba(210, 153, 34, 0.45); }
+    .risk-medium { background: rgba(88, 166, 255, 0.18); color: var(--accent); border: 1px solid rgba(88, 166, 255, 0.35); }
+    .risk-low { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
+
+    .mc-card-item { background: rgba(13, 17, 23, 0.65); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+    .mc-card-item.pending { border-color: rgba(248, 81, 73, 0.35); background: rgba(248, 81, 73, 0.05); }
+    .mc-code-pre { background: #0d1117; border: 1px solid rgba(240, 246, 252, 0.08); border-radius: 6px; padding: 8px 10px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace; color: #c9d1d9; overflow-x: auto; white-space: pre-wrap; margin: 8px 0; }
+    .mc-form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .mc-input { background: #0d1117; border: 1px solid #30363d; color: var(--text); padding: 7px 10px; border-radius: 7px; font-size: 12.5px; outline: none; }
+    .mc-input:focus { border-color: var(--accent); }
+    .mc-filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .mc-filter-pill { background: rgba(33, 38, 45, 0.7); border: 1px solid var(--card-border); color: var(--text-muted); padding: 4px 10px; border-radius: 14px; font-size: 11.5px; cursor: pointer; }
+    .mc-filter-pill.active { background: rgba(88, 166, 255, 0.18); color: var(--accent); border-color: rgba(88, 166, 255, 0.4); }
+    .mc-log-item { font-size: 12px; padding: 7px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; gap: 10px; }
+    .mc-log-item:last-child { border-bottom: none; }
+
+    /* Responsive */
+    @media (max-width: 960px) {
+      .mc-layout { grid-template-columns: 1fr; }
+      .mc-kpis { grid-template-columns: repeat(2, 1fr); }
+    }
+
     /* Responsive */
     @media (max-width: 768px) {
       body { padding: 16px; }
@@ -265,6 +311,12 @@
         </div>
       </div>
       <div class="header-actions">
+        <div class="view-tabs">
+          <button class="view-tab active" id="tabQuota" onclick="switchView('quota')">📊 配额监控</button>
+          <button class="view-tab" id="tabMission" onclick="switchView('mission')">
+            🎛️ Mission Control <span class="tab-badge" id="mcPendingBadge">0</span>
+          </button>
+        </div>
         <span id="aguiStatus" class="highlight-pill" style="display:inline-flex; align-items:center; gap:5px; background:rgba(63,185,80,0.15); color:var(--green); border-color:rgba(63,185,80,0.3); font-size:12px; padding: 4px 10px;">
           <span class="dot dot-pulse"></span> AG-UI 实时流已连接
         </span>
@@ -277,7 +329,7 @@
       </div>
     </header>
 
-    <div class="grid">
+    <div class="grid" id="quotaView">
       <!-- 1. Google Antigravity -->
       <div class="card">
         <div>
@@ -543,6 +595,113 @@
         </div>
       </div>
     </div>
+
+    <!-- =========================================================================
+         Mission Control View (多 Agent 任务状态与待审批治理中心)
+         ========================================================================= -->
+    <section class="mc-view" id="missionView">
+      <div class="mc-kpis">
+        <div class="mc-kpi">
+          <div class="mc-kpi-label">🛡️ 待人工审批 (Pending Approvals)</div>
+          <div class="mc-kpi-val" id="mcKpiPending" style="color:var(--red);">0</div>
+        </div>
+        <div class="mc-kpi">
+          <div class="mc-kpi-label">⚡ 运行中任务 (Running Tasks)</div>
+          <div class="mc-kpi-val" id="mcKpiRunning" style="color:var(--green);">0</div>
+        </div>
+        <div class="mc-kpi">
+          <div class="mc-kpi-label">🛰️ 本机活跃会话 (Live Sessions)</div>
+          <div class="mc-kpi-val" id="mcKpiSessions" style="color:var(--accent);">0</div>
+        </div>
+        <div class="mc-kpi">
+          <div class="mc-kpi-label">📋 任务总数 (Total Tasks)</div>
+          <div class="mc-kpi-val" id="mcKpiTotal" style="color:var(--text);">0</div>
+        </div>
+      </div>
+
+      <div class="mc-layout">
+        <!-- Left Column: Approvals + Task Board -->
+        <div>
+          <!-- Pending Approval Queue -->
+          <div class="mc-panel">
+            <div class="mc-panel-head">
+              <h3>🛡️ 待审批队列 (Human-in-the-Loop Gate)</h3>
+              <button class="btn btn-danger" style="padding:5px 10px; font-size:12px;" onclick="triggerDemoApproval()">🧪 模拟待审批</button>
+            </div>
+            <div id="mcApprovalsList">
+              <div style="font-size:12.5px; color:var(--text-muted); padding:10px 0;">✅ 当前无待审批请求，所有 Agent 处于安全受控状态。</div>
+            </div>
+          </div>
+
+          <!-- Multi-Agent Task Board -->
+          <div class="mc-panel">
+            <div class="mc-panel-head">
+              <h3>📋 多 Agent 任务看板 (Task Board)</h3>
+            </div>
+            <div class="mc-form-row">
+              <input type="text" id="mcNewTitle" class="mc-input" style="flex:2; min-width:180px;" placeholder="输入新任务标题（如：修复登录模块鉴权 Bug）...">
+              <select id="mcNewAgent" class="mc-input">
+                <option value="antigravity">⚡ Antigravity</option>
+                <option value="codex">🧠 Codex</option>
+                <option value="workbuddy">🤖 WorkBuddy</option>
+                <option value="volcengine">🌋 火山引擎</option>
+              </select>
+              <select id="mcNewPriority" class="mc-input">
+                <option value="normal">普通优先级</option>
+                <option value="high">高优先级</option>
+                <option value="urgent">紧急</option>
+                <option value="low">低优先级</option>
+              </select>
+              <button class="btn btn-primary" onclick="createMcTask()">➕ 派发任务</button>
+            </div>
+            <div class="mc-filter-bar" id="mcFilterBar">
+              <button class="mc-filter-pill active" onclick="setMcFilter('all', this)">全部</button>
+              <button class="mc-filter-pill" onclick="setMcFilter('running', this)">⚡ 运行中</button>
+              <button class="mc-filter-pill" onclick="setMcFilter('waiting_approval', this)">🛡️ 待审批</button>
+              <button class="mc-filter-pill" onclick="setMcFilter('queued', this)">⏳ 排队中</button>
+              <button class="mc-filter-pill" onclick="setMcFilter('done', this)">✅ 已完成</button>
+            </div>
+            <div id="mcTasksList">
+              <div style="font-size:12.5px; color:var(--text-muted); padding:10px 0;">暂无任务，可在上方快速新建或通过本地 Hook 上报。</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Live Sessions + Activity Timeline + Hook Docs -->
+        <div>
+          <div class="mc-panel">
+            <div class="mc-panel-head">
+              <h3>🛰️ 本机实时 Agent 会话</h3>
+              <button class="btn" style="padding:4px 9px; font-size:11px;" onclick="fetchMissionControl()">🔄 同步</button>
+            </div>
+            <div id="mcLiveSessions">
+              <div style="font-size:12px; color:var(--text-muted);">扫描中...</div>
+            </div>
+          </div>
+
+          <div class="mc-panel">
+            <div class="mc-panel-head">
+              <h3>📜 审计时间线 (Activity Timeline)</h3>
+            </div>
+            <div id="mcActivityLogs" style="max-height:320px; overflow-y:auto;">
+              <div style="font-size:12px; color:var(--text-muted);">暂无审计记录</div>
+            </div>
+          </div>
+
+          <div class="mc-panel">
+            <details>
+              <summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--accent);">🔌 本地 Agent Hook / 脚本接入示例</summary>
+              <div style="font-size:12px; color:var(--text-muted); margin-top:8px; line-height:1.5;">
+                任意 Codex / Claude Code Hook 或本地脚本均可调用以下接口上报任务与高危审批：
+              </div>
+              <pre class="mc-code-pre">curl -X POST http://127.0.0.1:5999/api/mc/approvals \
+  -H "Content-Type: application/json" \
+  -d '{"agent":"codex","title":"执行生产部署","risk_level":"high","action_preview":"git push origin main"}'</pre>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <!-- =========================================================================
@@ -666,6 +825,7 @@
         </button>
       </div>
     </div>
+
   </div>
 
   <!-- Settings Modal -->
@@ -717,6 +877,7 @@
         <button class="btn btn-primary" onclick="saveCredentials()">💾 保存并生效</button>
       </div>
     </div>
+
   </div>
 
   <!-- Toast 提示条 -->
@@ -1004,6 +1165,252 @@
       // 5. 检查是否触发 90% 熔断
       if (data.circuit_breaker && data.circuit_breaker.triggered) {
         openCircuitModal(data.circuit_breaker);
+      }
+
+      // 6. 同步 Mission Control 状态与红点徽标
+      if (data.mission_control && data.mission_control.summary) {
+        renderMissionControl(data.mission_control);
+      }
+    }
+
+    // =========================================================================
+    // Mission Control (多 Agent 任务与待审批治理引擎)
+    // =========================================================================
+    let mcState = null;
+    let mcTaskFilter = 'all';
+
+    function switchView(view) {
+      const quotaEl = document.getElementById('quotaView');
+      const missionEl = document.getElementById('missionView');
+      const tabQ = document.getElementById('tabQuota');
+      const tabM = document.getElementById('tabMission');
+      if (view === 'mission') {
+        quotaEl.style.display = 'none';
+        missionEl.classList.add('active');
+        tabQ.classList.remove('active');
+        tabM.classList.add('active');
+        fetchMissionControl();
+      } else {
+        quotaEl.style.display = 'grid';
+        missionEl.classList.remove('active');
+        tabQ.classList.add('active');
+        tabM.classList.remove('active');
+      }
+    }
+
+    async function fetchMissionControl() {
+      try {
+        const resp = await fetch('/api/mc/snapshot');
+        if (!resp.ok) return;
+        const snap = await resp.json();
+        renderMissionControl(snap);
+      } catch (err) {
+        console.error('Fetch MC error:', err);
+      }
+    }
+
+    function setMcFilter(filter, btnEl) {
+      mcTaskFilter = filter;
+      document.querySelectorAll('#mcFilterBar .mc-filter-pill').forEach(el => el.classList.remove('active'));
+      if (btnEl) btnEl.classList.add('active');
+      if (mcState) renderMissionControl(mcState);
+    }
+
+    function mcAgentLabel(a) {
+      const m = { antigravity: '⚡ Antigravity', codex: '🧠 Codex', workbuddy: '🤖 WorkBuddy', volcengine: '🌋 火山引擎' };
+      return m[a] || ('🤖 ' + escapeHtml(a));
+    }
+
+    function mcStatusBadge(st) {
+      const map = {
+        running: '<span class="badge badge-running"><span class="dot dot-pulse"></span>运行中</span>',
+        waiting_approval: '<span class="badge badge-critical"><span class="dot"></span>待审批</span>',
+        queued: '<span class="badge badge-warning"><span class="dot"></span>排队中</span>',
+        done: '<span class="badge badge-running"><span class="dot"></span>已完成</span>',
+        failed: '<span class="badge badge-stopped"><span class="dot"></span>失败/驳回</span>'
+      };
+      return map[st] || `<span class="badge badge-stopped">${escapeHtml(st)}</span>`;
+    }
+
+    function renderMissionControl(snap) {
+      mcState = snap;
+      const sum = snap.summary || {};
+      const pending = sum.pending_approvals || 0;
+      const badge = document.getElementById('mcPendingBadge');
+      if (badge) {
+        badge.innerText = pending;
+        badge.classList.toggle('show', pending > 0);
+      }
+      document.getElementById('mcKpiPending').innerText = pending;
+      document.getElementById('mcKpiRunning').innerText = sum.running_tasks || 0;
+      document.getElementById('mcKpiSessions').innerText = `${sum.active_sessions || 0} / ${sum.total_sessions || 0}`;
+      document.getElementById('mcKpiTotal').innerText = sum.total_tasks || 0;
+
+      // 1. Approvals
+      const apprs = snap.approvals || [];
+      const apprBox = document.getElementById('mcApprovalsList');
+      if (apprs.length === 0) {
+        apprBox.innerHTML = '<div style="font-size:12.5px; color:var(--text-muted); padding:10px 0;">✅ 当前无待审批请求，点击右上角「🧪 模拟待审批」可体验审批流。</div>';
+      } else {
+        apprBox.innerHTML = apprs.slice(0, 12).map(a => {
+          const isPending = a.status === 'pending';
+          const riskCls = 'risk-' + (['critical','high','medium','low'].includes(a.risk_level) ? a.risk_level : 'high');
+          const statusHtml = isPending
+            ? `<span class="badge badge-critical">待人工确认</span>`
+            : (a.status === 'approved'
+                ? `<span class="badge badge-running">✅ 已批准</span>`
+                : `<span class="badge badge-stopped">❌ 已驳回</span>`);
+          return `
+            <div class="mc-card-item ${isPending ? 'pending' : ''}">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span class="risk-badge ${riskCls}">${escapeHtml(a.risk_level)}</span>
+                  <strong style="font-size:13px;">#${a.id} ${escapeHtml(a.title)}</strong>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span class="highlight-pill">${mcAgentLabel(a.agent)}</span>
+                  ${statusHtml}
+                </div>
+              </div>
+              ${a.action_preview ? `<pre class="mc-code-pre">${escapeHtml(a.action_preview)}</pre>` : ''}
+              <div style="font-size:11px; color:var(--text-muted); margin-bottom:${isPending ? '8px' : '0'};">
+                提交时间: ${escapeHtml(a.created_at)}${a.resolved_at ? ' · 处理时间: ' + escapeHtml(a.resolved_at) : ''}${a.decision_note ? ' · 备注: ' + escapeHtml(a.decision_note) : ''}
+              </div>
+              ${isPending ? `
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  <input type="text" id="appr-note-${a.id}" class="mc-input" style="flex:1; min-width:160px;" placeholder="可选审批备注 / 附带指令...">
+                  <button class="btn btn-primary" style="padding:5px 12px; font-size:12px;" onclick="resolveMcApproval(${a.id}, 'approved')">✅ 批准放行</button>
+                  <button class="btn btn-danger" style="padding:5px 12px; font-size:12px;" onclick="resolveMcApproval(${a.id}, 'rejected')">❌ 驳回</button>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+      }
+
+      // 2. Tasks
+      const allTasks = snap.tasks || [];
+      const tasks = mcTaskFilter === 'all' ? allTasks : allTasks.filter(t => t.status === mcTaskFilter);
+      const taskBox = document.getElementById('mcTasksList');
+      if (tasks.length === 0) {
+        taskBox.innerHTML = '<div style="font-size:12.5px; color:var(--text-muted); padding:10px 0;">当前筛选条件下暂无任务。</div>';
+      } else {
+        taskBox.innerHTML = tasks.map(t => `
+          <div class="mc-card-item">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="highlight-pill">${mcAgentLabel(t.agent)}</span>
+                <strong style="font-size:13px;">#${t.id} ${escapeHtml(t.title)}</strong>
+              </div>
+              ${mcStatusBadge(t.status)}
+            </div>
+            ${t.summary ? `<div style="font-size:12px; color:var(--text-muted); margin-bottom:6px;">${escapeHtml(t.summary)}</div>` : ''}
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-size:11px; color:var(--text-muted);">更新: ${escapeHtml(t.updated_at)} · 来源: ${escapeHtml(t.source)}</span>
+              <div style="display:flex; gap:6px;">
+                ${t.status !== 'running' ? `<button class="btn" style="padding:3px 8px; font-size:11px;" onclick="updateMcTask(${t.id}, 'running')">▶ 运行</button>` : ''}
+                ${t.status !== 'waiting_approval' ? `<button class="btn" style="padding:3px 8px; font-size:11px;" onclick="updateMcTask(${t.id}, 'waiting_approval')">🛡️ 挂审批</button>` : ''}
+                ${t.status !== 'done' ? `<button class="btn btn-primary" style="padding:3px 8px; font-size:11px;" onclick="updateMcTask(${t.id}, 'done')">✅ 完成</button>` : ''}
+                <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;" onclick="deleteMcTask(${t.id})">🗑️</button>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // 3. Live Sessions
+      const sessions = snap.live_sessions || [];
+      const sessBox = document.getElementById('mcLiveSessions');
+      if (sessions.length === 0) {
+        sessBox.innerHTML = '<div style="font-size:12px; color:var(--text-muted);">未检测到本地活跃会话</div>';
+      } else {
+        sessBox.innerHTML = sessions.map(s => `
+          <div class="mc-log-item" style="align-items:center;">
+            <div>
+              <div style="font-weight:500; color:var(--text);">${mcAgentLabel(s.agent)} · ${escapeHtml(s.session_id)}</div>
+              <div style="font-size:11px; color:var(--text-muted);">最近活动: ${escapeHtml(s.last_active)} (${escapeHtml(s.age_human)})</div>
+            </div>
+            <span class="badge ${s.status === 'running' ? 'badge-running' : 'badge-stopped'}">${s.status === 'running' ? '活跃中' : '空闲'}</span>
+          </div>
+        `).join('');
+      }
+
+      // 4. Activity Logs
+      const logs = snap.activity_logs || [];
+      const logBox = document.getElementById('mcActivityLogs');
+      if (logs.length === 0) {
+        logBox.innerHTML = '<div style="font-size:12px; color:var(--text-muted);">暂无审计记录</div>';
+      } else {
+        logBox.innerHTML = logs.map(l => `
+          <div class="mc-log-item">
+            <span style="color:var(--text);">${escapeHtml(l.message)}</span>
+            <span style="color:var(--text-muted); font-family:ui-monospace,monospace; font-size:11px; white-space:nowrap;">${escapeHtml(String(l.created_at || '').split(' ')[1] || l.created_at)}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    async function createMcTask() {
+      const titleEl = document.getElementById('mcNewTitle');
+      const title = titleEl.value.trim();
+      if (!title) { showToast('请先输入任务标题', '⚠️'); return; }
+      const agent = document.getElementById('mcNewAgent').value;
+      const priority = document.getElementById('mcNewPriority').value;
+      const resp = await fetch('/api/mc/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, agent, priority, status: 'queued' })
+      });
+      const res = await resp.json();
+      if (res.success) {
+        titleEl.value = '';
+        showToast('任务已派发至 Mission Control', '📋');
+        fetchMissionControl();
+      } else {
+        showToast(res.message || '创建失败', '⚠️');
+      }
+    }
+
+    async function updateMcTask(id, status) {
+      await fetch('/api/mc/tasks/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status })
+      });
+      fetchMissionControl();
+    }
+
+    async function deleteMcTask(id) {
+      await fetch('/api/mc/tasks/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      fetchMissionControl();
+    }
+
+    async function resolveMcApproval(id, decision) {
+      const noteEl = document.getElementById('appr-note-' + id);
+      const note = noteEl ? noteEl.value.trim() : '';
+      const resp = await fetch('/api/mc/approvals/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, decision, note })
+      });
+      const res = await resp.json();
+      if (res.success) {
+        showToast(decision === 'approved' ? '已批准放行该操作' : '已驳回该操作', decision === 'approved' ? '✅' : '🛑');
+        fetchMissionControl();
+      }
+    }
+
+    async function triggerDemoApproval() {
+      const resp = await fetch('/api/mc/approvals/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const res = await resp.json();
+      if (res.success) {
+        playAlertBeep();
+        showToast('已模拟提交一条高危待审批请求', '🛡️');
+        fetchMissionControl();
       }
     }
 
@@ -1472,6 +1879,14 @@
           console.log('[AG-UI] 熔断已解除:', res);
           closeCircuitModal();
           showToast(`熔断保护已解除 (${res.action || '已决策'})`, '🛡️');
+        } catch (err) {}
+      });
+
+      // 6. Mission Control 实时任务与审批更新
+      eventSource.addEventListener('MISSION_CONTROL_UPDATED', (e) => {
+        try {
+          const snap = JSON.parse(e.data);
+          renderMissionControl(snap);
         } catch (err) {}
       });
 

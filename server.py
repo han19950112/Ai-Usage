@@ -30,6 +30,7 @@ from monitors.antigravity import get_antigravity_status
 from monitors.codex import get_codex_status
 from monitors.volcengine import get_volcengine_plan_status
 from monitors.workbuddy import get_workbuddy_status, run_workbuddy_checkin
+import mission_control as mc
 
 # Storage configuration
 USER_DATA_DIR = os.path.expanduser("~/.agent-cockpit")
@@ -172,7 +173,8 @@ LATEST_STATUS = {
     "antigravity": {},
     "codex": {},
     "volcengine": {},
-    "workbuddy": {}
+    "workbuddy": {},
+    "mission_control": {}
 }
 
 STATUS_LOCK = threading.Lock()
@@ -218,6 +220,7 @@ def update_all_status(notify=True):
         LATEST_STATUS["volcengine"] = volc
         LATEST_STATUS["workbuddy"] = wb
         LATEST_STATUS["circuit_breaker"] = dict(CIRCUIT_BREAKER)
+        LATEST_STATUS["mission_control"] = mc.get_snapshot()
         snapshot = dict(LATEST_STATUS)
 
     if notify:
@@ -429,6 +432,20 @@ class CockpitHandler(BaseHTTPRequestHandler):
             self.send_json(data)
             return
 
+        if path == "/api/mc/snapshot":
+            self.send_json(mc.get_snapshot())
+            return
+
+        if path.startswith("/api/mc/approvals/"):
+            appr_id_str = path.rsplit("/", 1)[-1]
+            if appr_id_str.isdigit():
+                appr = mc.get_approval(int(appr_id_str))
+                if appr:
+                    self.send_json(appr)
+                else:
+                    self.send_json({"error": "Approval not found"}, code=404)
+                return
+
         if path == "/api/config":
             cfg = load_config()
             safe_cfg = json.loads(json.dumps(cfg))
@@ -528,6 +545,131 @@ class CockpitHandler(BaseHTTPRequestHandler):
                 cb_snapshot = dict(CIRCUIT_BREAKER)
             EVENT_HUB.broadcast_event("HUMAN_INTERACTION_REQUIRED", cb_snapshot)
             self.send_json({"success": True, "message": "90% 熔断审批卡片已推送到前端界面！"})
+            return
+
+        # 4.5 Mission Control APIs (多 Agent 任务与审批治理)
+        if path == "/api/mc/tasks":
+            try:
+                task = mc.create_task(
+                    title=req_json.get("title", ""),
+                    agent=req_json.get("agent", "antigravity"),
+                    status=req_json.get("status", "queued"),
+                    priority=req_json.get("priority", "normal"),
+                    summary=req_json.get("summary", ""),
+                    source=req_json.get("source", "manual"),
+                )
+                snap = mc.get_snapshot()
+                with STATUS_LOCK:
+                    LATEST_STATUS["mission_control"] = snap
+                EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                self.send_json({"success": True, "task": task})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/mc/tasks/update":
+            try:
+                task = mc.update_task(
+                    task_id=req_json.get("id"),
+                    status=req_json.get("status"),
+                    summary=req_json.get("summary"),
+                    priority=req_json.get("priority"),
+                )
+                if not task:
+                    self.send_json({"success": False, "message": "任务不存在"}, code=404)
+                    return
+                snap = mc.get_snapshot()
+                with STATUS_LOCK:
+                    LATEST_STATUS["mission_control"] = snap
+                EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                self.send_json({"success": True, "task": task})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/mc/tasks/delete":
+            try:
+                ok = mc.delete_task(req_json.get("id"))
+                snap = mc.get_snapshot()
+                with STATUS_LOCK:
+                    LATEST_STATUS["mission_control"] = snap
+                EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                self.send_json({"success": ok})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/mc/approvals":
+            try:
+                appr = mc.create_approval(
+                    title=req_json.get("title", ""),
+                    agent=req_json.get("agent", "codex"),
+                    action_preview=req_json.get("action_preview", ""),
+                    risk_level=req_json.get("risk_level", "high"),
+                    task_id=req_json.get("task_id"),
+                )
+                snap = mc.get_snapshot()
+                with STATUS_LOCK:
+                    LATEST_STATUS["mission_control"] = snap
+                EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                send_macos_notification(
+                    f"🛡️ 待审批 [{appr['risk_level'].upper()}]",
+                    f"{appr['agent'].upper()}: {appr['title']}",
+                    subtitle="Mission Control 人工门控",
+                )
+                self.send_json({"success": True, "approval": appr})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/mc/approvals/resolve":
+            try:
+                appr = mc.resolve_approval(
+                    approval_id=req_json.get("id"),
+                    decision=req_json.get("decision", "approved"),
+                    note=req_json.get("note", ""),
+                )
+                if not appr:
+                    self.send_json({"success": False, "message": "审批单不存在"}, code=404)
+                    return
+                snap = mc.get_snapshot()
+                with STATUS_LOCK:
+                    LATEST_STATUS["mission_control"] = snap
+                EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                self.send_json({"success": True, "approval": appr})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/mc/approvals/test":
+            try:
+                task = mc.create_task(
+                    title="推送生产分支变更并执行数据库迁移",
+                    agent="codex",
+                    status="waiting_approval",
+                    priority="high",
+                    summary="Codex 已生成迁移脚本，等待人工审批高危执行命令",
+                    source="demo",
+                )
+                appr = mc.create_approval(
+                    title="执行 git push origin main && alembic upgrade head",
+                    agent="codex",
+                    action_preview="git push origin main\nalembic upgrade head --sql=false",
+                    risk_level="high",
+                    task_id=task["id"],
+                )
+                snap = mc.get_snapshot()
+                with STATUS_LOCK:
+                    LATEST_STATUS["mission_control"] = snap
+                EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                send_macos_notification(
+                    "🛡️ 待审批 [HIGH]",
+                    f"CODEX: {appr['title']}",
+                    subtitle="Mission Control 演练",
+                )
+                self.send_json({"success": True, "approval": appr, "task": task})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
             return
 
         # 5. AG-UI 智能体流式对话引擎 (Agent Chat & Command Streaming)

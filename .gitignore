@@ -1,6 +1,9 @@
 # 运行期状态与凭证（防泄露）
 config.json
 checkin_history.json
+mission_control.db
+mission_control.db-shm
+mission_control.db-wal
 server.log
 server_err.log
 server.pid
