@@ -510,9 +510,14 @@ def get_antigravity_status():
         # 1. 查找 Gemini 主力套
         g_rem = rem_pct
         g_used = used_pct
+        g_label = sm.get("label") or "Gemini 主力套"
+        if "claude" in g_label.lower():
+            g_opt = next((o for o in model_opts if "gemini" in o.get("label", "").lower()), None)
+            if g_opt:
+                g_label = g_opt.get("label", "Gemini 主力套")
         dual_models.append({
             "id": "model_gemini",
-            "name": "⚡ Gemini 3.8 Flash (主力套)",
+            "name": f"⚡ {g_label} (主力套)",
             "type": "官方推荐 · 日常主力编程",
             "five_hour_used": f"已用 {g_used}%",
             "weekly_used": f"剩余 {g_rem}%",
