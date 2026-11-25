@@ -29,6 +29,34 @@ _PROCS = {}  # run_id -> subprocess.Popen or cancel Event
 _MAX_OUTPUT_CHARS = 65536
 
 
+def generate_batch_id():
+    return "batch-" + uuid.uuid4().hex[:8]
+
+
+def _persist_run_snapshot(run_id):
+    with _RUNS_LOCK:
+        r = _RUNS.get(run_id)
+        snap = dict(r) if r else None
+    if snap:
+        try:
+            mc.save_agent_run(snap)
+        except Exception:
+            pass
+
+
+def load_persisted_runs(limit=40):
+    try:
+        mc.mark_interrupted_runs()
+        rows = mc.list_agent_runs(limit=limit)
+        with _RUNS_LOCK:
+            for row in rows:
+                rid = row.get("id")
+                if rid and rid not in _RUNS:
+                    _RUNS[rid] = row
+    except Exception:
+        pass
+
+
 def _find_binary(names, extra_paths=()):
     for n in names:
         p = shutil.which(n)
@@ -73,16 +101,44 @@ def _append_output(run_id, text):
         r["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def list_runs(limit=30):
+def list_runs(limit=40):
     with _RUNS_LOCK:
-        items = sorted(_RUNS.values(), key=lambda x: x["started_ts"], reverse=True)[:limit]
+        items = sorted(_RUNS.values(), key=lambda x: x.get("started_ts", 0), reverse=True)[:limit]
         return [dict(x) for x in items]
 
 
 def get_run(run_id):
     with _RUNS_LOCK:
         r = _RUNS.get(run_id)
-        return dict(r) if r else None
+        if r:
+            return dict(r)
+    return mc.get_agent_run(run_id)
+
+
+def delete_run(run_id):
+    with _RUNS_LOCK:
+        r = _RUNS.get(run_id)
+        if r and r.get("status") == "running":
+            return False
+        _RUNS.pop(run_id, None)
+    return mc.delete_agent_run(run_id)
+
+
+def retry_run(run_id, config=None, on_update=None, on_notify=None):
+    orig = get_run(run_id)
+    if not orig:
+        raise ValueError("未找到对应的历史执行记录")
+    return dispatch_task(
+        agent=orig.get("agent", "antigravity"),
+        prompt=orig.get("prompt", ""),
+        title=orig.get("title"),
+        cwd=orig.get("cwd"),
+        priority="normal",
+        config=config,
+        on_update=on_update,
+        on_notify=on_notify,
+        batch_id=orig.get("batch_id", ""),
+    )
 
 
 def cancel_run(run_id, on_update=None):
@@ -111,6 +167,7 @@ def cancel_run(run_id, on_update=None):
 
     if task_id:
         mc.update_task(task_id, status="failed", summary="任务已由用户手动中止")
+    _persist_run_snapshot(run_id)
     mc.log_activity(agent, "run_cancelled", f"已中止运行任务 {run_id}")
     if on_update:
         on_update()
@@ -218,7 +275,7 @@ def stream_direct_chat(agent, message, config, on_chunk):
             proc.kill()
 
 
-def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config=None, on_update=None, on_notify=None, task_id=None):
+def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config=None, on_update=None, on_notify=None, task_id=None, batch_id=""):
     """Spawn a real background agent run linked to Mission Control and return the run record."""
     agent = str(agent or "antigravity").strip().lower()
     prompt = str(prompt or "").strip()
@@ -257,6 +314,7 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     run_rec = {
         "id": run_id,
+        "batch_id": str(batch_id or ""),
         "task_id": task["id"],
         "agent": agent,
         "title": task_title,
@@ -273,6 +331,7 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
     }
     with _RUNS_LOCK:
         _RUNS[run_id] = run_rec
+    _persist_run_snapshot(run_id)
 
     if on_update:
         on_update()
@@ -316,6 +375,7 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
                     on_update()
 
                 last_emit = 0.0
+                last_persist = 0.0
                 if proc.stdout:
                     for line in proc.stdout:
                         _append_output(run_id, line)
@@ -323,6 +383,9 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
                         if on_update and (now_t - last_emit) >= 0.4:
                             last_emit = now_t
                             on_update()
+                        if (now_t - last_persist) >= 2.0:
+                            last_persist = now_t
+                            _persist_run_snapshot(run_id)
                 exit_code = proc.wait(timeout=300)
                 with _RUNS_LOCK:
                     cur_st = _RUNS.get(run_id, {}).get("status")
@@ -350,6 +413,7 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
                 else:
                     preview = ""
 
+            _persist_run_snapshot(run_id)
             if final_status == "done":
                 mc.update_task(task["id"], status="done", summary=f"执行完成 · {preview}")
                 if on_notify:
@@ -364,3 +428,6 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
 
     threading.Thread(target=_worker, daemon=True).start()
     return dict(run_rec)
+
+
+load_persisted_runs()

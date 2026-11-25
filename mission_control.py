@@ -93,6 +93,25 @@ def init_db():
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_usage_snapshots_ts ON usage_snapshots(ts);
+                CREATE TABLE IF NOT EXISTS agent_runs (
+                    id TEXT PRIMARY KEY,
+                    batch_id TEXT DEFAULT '',
+                    task_id INTEGER,
+                    agent TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    prompt TEXT NOT NULL,
+                    cwd TEXT DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'running',
+                    pid INTEGER,
+                    exit_code INTEGER,
+                    output TEXT DEFAULT '',
+                    started_ts REAL NOT NULL,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    finished_at TEXT DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_runs_started ON agent_runs(started_ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_agent_runs_batch ON agent_runs(batch_id);
             """)
             conn.commit()
         finally:
@@ -495,6 +514,96 @@ def get_usage_trends():
             "snapshot_count": len(snaps),
         },
     }
+
+
+def save_agent_run(run_rec):
+    """Upsert an agent execution record into SQLite for persistence across restarts."""
+    if not run_rec or not run_rec.get("id"):
+        return
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO agent_runs (
+                    id, batch_id, task_id, agent, title, prompt, cwd, status,
+                    pid, exit_code, output, started_ts, started_at, updated_at, finished_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(run_rec.get("id")),
+                    str(run_rec.get("batch_id") or ""),
+                    run_rec.get("task_id"),
+                    str(run_rec.get("agent") or "antigravity"),
+                    str(run_rec.get("title") or "")[:200],
+                    str(run_rec.get("prompt") or "")[:8000],
+                    str(run_rec.get("cwd") or "")[:500],
+                    str(run_rec.get("status") or "running"),
+                    run_rec.get("pid"),
+                    run_rec.get("exit_code"),
+                    str(run_rec.get("output") or "")[:65536],
+                    float(run_rec.get("started_ts") or time.time()),
+                    str(run_rec.get("started_at") or _now_str()),
+                    str(run_rec.get("updated_at") or _now_str()),
+                    str(run_rec.get("finished_at") or ""),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def list_agent_runs(limit=40):
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM agent_runs ORDER BY started_ts DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+
+def get_agent_run(run_id):
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            row = conn.execute("SELECT * FROM agent_runs WHERE id = ?", (str(run_id),)).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+
+def delete_agent_run(run_id):
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            cur = conn.execute("DELETE FROM agent_runs WHERE id = ?", (str(run_id),))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+
+def mark_interrupted_runs():
+    """On startup, mark any stale 'running' rows from a prior process as interrupted."""
+    now = _now_str()
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            rows = conn.execute("SELECT id, output FROM agent_runs WHERE status = 'running'").fetchall()
+            for r in rows:
+                out = (r["output"] or "") + "\n\n[⚠️ 服务重启，原运行进程已中断]\n"
+                conn.execute(
+                    "UPDATE agent_runs SET status = 'failed', finished_at = ?, updated_at = ?, output = ? WHERE id = ?",
+                    (now, now, out[:65536], r["id"]),
+                )
+            if rows:
+                conn.commit()
+        finally:
+            conn.close()
 
 
 init_db()

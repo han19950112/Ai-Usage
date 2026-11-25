@@ -812,6 +812,7 @@ class CockpitHandler(BaseHTTPRequestHandler):
                     EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
                     EVENT_HUB.broadcast_event("AGENT_RUN_UPDATED", {"runs": runner.list_runs()})
 
+                batch_id = runner.generate_batch_id()
                 dispatched = []
                 for ag_name in agents[:4]:
                     rec = runner.dispatch_task(
@@ -823,9 +824,40 @@ class CockpitHandler(BaseHTTPRequestHandler):
                         config=cfg,
                         on_update=_on_run_update,
                         on_notify=lambda t, m: send_macos_notification(t, m, subtitle="多 Agent 并行广播"),
+                        batch_id=batch_id,
                     )
                     dispatched.append(rec)
-                self.send_json({"success": True, "runs": dispatched, "count": len(dispatched)})
+                self.send_json({"success": True, "batch_id": batch_id, "runs": dispatched, "count": len(dispatched)})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/agents/runs/retry":
+            try:
+                cfg = load_config()
+                def _on_retry_update():
+                    snap = mc.get_snapshot()
+                    with STATUS_LOCK:
+                        LATEST_STATUS["mission_control"] = snap
+                    EVENT_HUB.broadcast_event("MISSION_CONTROL_UPDATED", snap)
+                    EVENT_HUB.broadcast_event("AGENT_RUN_UPDATED", {"runs": runner.list_runs()})
+                new_run = runner.retry_run(
+                    req_json.get("id", ""),
+                    config=cfg,
+                    on_update=_on_retry_update,
+                    on_notify=lambda t, m: send_macos_notification(t, m, subtitle="重试执行任务"),
+                )
+                self.send_json({"success": True, "run": new_run})
+            except Exception as e:
+                self.send_json({"success": False, "message": str(e)}, code=400)
+            return
+
+        if path == "/api/agents/runs/delete":
+            try:
+                ok = runner.delete_run(req_json.get("id", ""))
+                if ok:
+                    EVENT_HUB.broadcast_event("AGENT_RUN_UPDATED", {"runs": runner.list_runs()})
+                self.send_json({"success": ok, "message": "已删除历史记录" if ok else "运行中任务不可删除或记录不存在"})
             except Exception as e:
                 self.send_json({"success": False, "message": str(e)}, code=400)
             return
