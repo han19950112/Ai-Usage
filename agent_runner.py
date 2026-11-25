@@ -218,7 +218,7 @@ def stream_direct_chat(agent, message, config, on_chunk):
             proc.kill()
 
 
-def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config=None, on_update=None, on_notify=None):
+def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config=None, on_update=None, on_notify=None, task_id=None):
     """Spawn a real background agent run linked to Mission Control and return the run record."""
     agent = str(agent or "antigravity").strip().lower()
     prompt = str(prompt or "").strip()
@@ -229,14 +229,30 @@ def dispatch_task(agent, prompt, title=None, cwd=None, priority="normal", config
     if not os.path.isdir(work_dir):
         work_dir = os.getcwd()
 
-    task = mc.create_task(
-        title=task_title,
-        agent=agent,
-        status="running",
-        priority=priority,
-        summary=f"已派发给 {agent.upper()} 后台执行中 (目录: {work_dir})",
-        source="dispatch",
-    )
+    if task_id is not None:
+        task = mc.update_task(
+            task_id,
+            status="running",
+            summary=f"已派发给 {agent.upper()} 后台执行中 (目录: {work_dir})",
+        )
+        if not task:
+            task = mc.create_task(
+                title=task_title,
+                agent=agent,
+                status="running",
+                priority=priority,
+                summary=f"已派发给 {agent.upper()} 后台执行中 (目录: {work_dir})",
+                source="dispatch",
+            )
+    else:
+        task = mc.create_task(
+            title=task_title,
+            agent=agent,
+            status="running",
+            priority=priority,
+            summary=f"已派发给 {agent.upper()} 后台执行中 (目录: {work_dir})",
+            source="dispatch",
+        )
     run_id = "run-" + uuid.uuid4().hex[:8]
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     run_rec = {

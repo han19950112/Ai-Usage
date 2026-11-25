@@ -1517,6 +1517,24 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
       }
     }
 
+    async function runExistingTask(taskId) {
+      const t = (mcState?.tasks || []).find(x => x.id === taskId);
+      if (!t) return;
+      const cwd = (document.getElementById('mcNewCwd')?.value || '').trim();
+      const resp = await fetch('/api/agents/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent: t.agent, prompt: t.title, title: t.title, task_id: t.id, cwd })
+      });
+      const res = await resp.json();
+      if (res.success) {
+        showToast(`已拉起 ${t.agent.toUpperCase()} 真实执行任务 #${t.id}`, '🚀');
+        fetchMissionControl();
+      } else {
+        showToast(res.message || '执行失败', '⚠️');
+      }
+    }
+
     async function cancelAgentRun(runId) {
       const resp = await fetch('/api/agents/runs/cancel', {
         method: 'POST',
@@ -1633,7 +1651,7 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
               <span style="font-size:11px; color:var(--text-muted);">更新: ${escapeHtml(t.updated_at)} · 来源: ${escapeHtml(t.source)}</span>
               <div style="display:flex; gap:6px;">
-                ${t.status !== 'running' ? `<button class="btn" style="padding:3px 8px; font-size:11px;" onclick="updateMcTask(${t.id}, 'running')">▶ 运行</button>` : ''}
+                <button class="btn btn-chat" style="padding:3px 8px; font-size:11px;" onclick="runExistingTask(${t.id})">🚀 执行</button>
                 ${t.status !== 'waiting_approval' ? `<button class="btn" style="padding:3px 8px; font-size:11px;" onclick="updateMcTask(${t.id}, 'waiting_approval')">🛡️ 挂审批</button>` : ''}
                 ${t.status !== 'done' ? `<button class="btn btn-primary" style="padding:3px 8px; font-size:11px;" onclick="updateMcTask(${t.id}, 'done')">✅ 完成</button>` : ''}
                 <button class="btn btn-danger" style="padding:3px 8px; font-size:11px;" onclick="deleteMcTask(${t.id})">🗑️</button>

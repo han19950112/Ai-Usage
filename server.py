@@ -719,6 +719,7 @@ class CockpitHandler(BaseHTTPRequestHandler):
                     config=cfg,
                     on_update=_on_run_update,
                     on_notify=lambda t, m: send_macos_notification(t, m, subtitle="多 Agent 调度执行"),
+                    task_id=req_json.get("task_id"),
                 )
                 self.send_json({"success": True, "run": run_rec})
             except Exception as e:
