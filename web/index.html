@@ -1253,20 +1253,12 @@ curl -X POST http://127.0.0.1:5999/api/mc/approvals \
         if (rc.items && rc.items.length > 0) {
           rcListEl.innerHTML = rc.items.map(item => `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:rgba(22,27,34,0.8); border:1px solid var(--card-border); border-radius:6px; padding:7px 9px;">
-              <div>
-                <div style="font-size:12px; font-weight:600; color:var(--text);">${escapeHtml(item.title)}</div>
-                <div style="font-size:11px; color:var(--text-muted);">将于 ${escapeHtml(item.expires_at)} 到期</div>
-              </div>
-              <button class="btn" style="padding:4px 9px; font-size:11px;" onclick="consumeCodexResetCredit()">🔄 使用重置额度</button>
+              <div style="font-size:12px; font-weight:600; color:var(--text);">${escapeHtml(item.title)}</div>
+              <div style="font-size:11px; color:var(--text-muted); font-family:ui-monospace,monospace;">将于 ${escapeHtml(item.expires_at)} 到期</div>
             </div>
           `).join('');
         } else if (rcCount > 0) {
-          rcListEl.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:12px; color:var(--text);">完全重置（每周 + 5 小时）× ${rcCount}</span>
-              <button class="btn" style="padding:4px 9px; font-size:11px;" onclick="consumeCodexResetCredit()">🔄 使用重置额度</button>
-            </div>
-          `;
+          rcListEl.innerHTML = `<div style="font-size:12px; color:var(--text);">完全重置（每周 + 5 小时）× ${rcCount}</div>`;
         } else {
           rcListEl.innerHTML = '<div style="font-size:11px; color:var(--text-muted);">当前暂无可用重置次数</div>';
         }
