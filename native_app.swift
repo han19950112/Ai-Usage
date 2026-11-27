@@ -554,10 +554,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWind
         if FileManager.default.fileExists(atPath: "\(internalBackend)/server.py") {
             return internalBackend
         }
-        let defaultRepoDir = NSString(string: "~/Documents/08_个人库/Ai-Usage").expandingTildeInPath
-        if FileManager.default.fileExists(atPath: "\(defaultRepoDir)/server.py") {
-            return defaultRepoDir
-        }
         return candidateSameDir
     }
 
